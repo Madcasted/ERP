@@ -4,9 +4,12 @@ import { useState } from "react";
 
 const navItems = [
   { id: "dashboard", label: "แดชบอร์ด", icon: "🏠" },
-  { id: "products", label: "สินค้า", icon: "📦" },
-  { id: "orders", label: "คำสั่งซื้อ", icon: "🧾" },
-  { id: "customers", label: "ลูกค้า", icon: "👥" },
+  { id: "inventory", label: "คลังสินค้า", icon: "📦" },
+  { id: "transaction", label: "ธุรกรรม", icon: "↕️" },
+  { id: "production", label: "การผลิต", icon: "🤖" },
+  { id: "machine", label: "เครื่องจักร", icon: "⚙️" },
+  { id: "report", label: "รายงาน", icon: "📊" },
+  { id: "system", label: "ระบบ", icon: "🛠️" },
 ];
 
 type Props = {
@@ -28,7 +31,7 @@ export function Sidebar({ selected = "dashboard", onSelect, collapsed = false, o
         {navItems.map((item) => (
           <li key={item.id} className={selected === item.id ? "active" : ""}>
             <a href="#" onClick={(e) => { e.preventDefault(); onSelect?.(item.id); }}>
-              <i className={`bx ${item.id === 'dashboard' ? 'bxs-dashboard' : item.id === 'products' ? 'bxs-shopping-bag-alt' : item.id === 'orders' ? 'bxs-doughnut-chart' : 'bxs-group'} bx-sm`}></i>
+              <span className="nav-icon">{item.icon}</span>
               <span className="text">{item.label}</span>
             </a>
           </li>

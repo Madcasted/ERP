@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import QRCode from "qrcode";
 
 function intervalToTrunc(unit) {
   switch (unit) {
@@ -43,6 +44,61 @@ export async function GET(request) {
     return NextResponse.json(rows.map((r) => ({ period: r.period, count: Number(r.count) })));
   }
 
-  const products = await prisma.product.findMany({ orderBy: { updatedAt: "desc" } });
+  const products = await prisma.product.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: { materials: { include: { material: true } }, warehouse: true },
+  });
   return NextResponse.json(products);
+}
+
+export async function POST(request) {
+  const body = await request.json();
+
+  // Generate QR code from SKU
+  let qrCodeImage = null;
+  if (body.sku) {
+    try {
+      qrCodeImage = await QRCode.toDataURL(body.sku, { width: 200 });
+    } catch (err) {
+      console.error("QR Code generation error:", err);
+    }
+  }
+
+  const product = await prisma.product.create({
+    data: {
+      name: body.name,
+      sku: body.sku,
+      qrCode: qrCodeImage || body.sku || null,
+      image: body.image || null,
+      type: body.type || "SINGLE",
+      price: Number(body.price) || 0,
+      stock: Number(body.stock) || 0,
+      description: body.description || "",
+      details: body.details || "",
+      warehouseId: body.warehouseId || null,
+    },
+    include: { materials: { include: { material: true } } },
+  });
+
+  // Add materials if composite product
+  if (body.type === "COMPOSITE" && body.materials && body.materials.length > 0) {
+    for (const mat of body.materials) {
+      await prisma.productMaterial.create({
+        data: {
+          productId: product.id,
+          materialId: mat.materialId,
+          quantity: mat.quantity,
+          unitPrice: mat.unitPrice,
+        },
+      });
+    }
+  }
+
+  // Fetch updated product with materials
+  const updatedProduct = await prisma.product.findUnique({
+    where: { id: product.id },
+    include: { materials: { include: { material: true } }, warehouse: true },
+  });
+
+  return NextResponse.json(updatedProduct, { status: 201 });
 }

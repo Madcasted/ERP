@@ -22,11 +22,64 @@ async function main() {
     },
   });
 
-  await prisma.product.createMany({
+  const warehouse1 = await prisma.warehouse.upsert({
+    where: { name: "คลังหลัก" },
+    update: {},
+    create: { name: "คลังหลัก", location: "กรุงเทพมหานคร" },
+  });
+  const warehouse2 = await prisma.warehouse.upsert({
+    where: { name: "คลังสาขา" },
+    update: {},
+    create: { name: "คลังสาขา", location: "นนทบุรี" },
+  });
+
+  await prisma.product.upsert({
+    where: { sku: "ERP-PC-001" },
+    update: {},
+    create: {
+      name: "คอมพิวเตอร์สำนักงาน",
+      sku: "ERP-PC-001",
+      price: 17800,
+      stock: 20,
+      warehouseId: warehouse1.id,
+      qrCode: "ERP-PC-001",
+      description: "คอมพิวเตอร์สำหรับใช้งานทั่วไปในสำนักงาน",
+    },
+  });
+
+  await prisma.product.upsert({
+    where: { sku: "ERP-WIFI-002" },
+    update: {},
+    create: {
+      name: "โมเด็มไวไฟ",
+      sku: "ERP-WIFI-002",
+      price: 1250,
+      stock: 35,
+      warehouseId: warehouse1.id,
+      qrCode: "ERP-WIFI-002",
+      description: "อุปกรณ์เชื่อมต่ออินเทอร์เน็ตสำหรับสำนักงาน",
+    },
+  });
+
+  await prisma.product.upsert({
+    where: { sku: "ERP-MON-003" },
+    update: {},
+    create: {
+      name: "จอภาพ 24 นิ้ว",
+      sku: "ERP-MON-003",
+      price: 4200,
+      stock: 12,
+      warehouseId: warehouse2.id,
+      qrCode: "ERP-MON-003",
+      description: "จอแสดงผลความละเอียดสูง 24 นิ้ว",
+    },
+  });
+
+  await prisma.material.createMany({
     data: [
-      { name: "คอมพิวเตอร์สำนักงาน", sku: "ERP-PC-001", price: 17800, stock: 20 },
-      { name: "โมเด็มไวไฟ", sku: "ERP-WIFI-002", price: 1250, stock: 35 },
-      { name: "จอภาพ 24 นิ้ว", sku: "ERP-MON-003", price: 4200, stock: 12 }
+      { name: "เหล็กแผ่น", unit: "kg", unitPrice: 45 },
+      { name: "พลาสติก ABS", unit: "kg", unitPrice: 120 },
+      { name: "สกรู", unit: "pcs", unitPrice: 2 },
     ],
     skipDuplicates: true,
   });
