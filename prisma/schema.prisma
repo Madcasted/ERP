@@ -146,6 +146,36 @@ model OrderItem {
   price     Float
 }
 
+model MaterialReceipt {
+  id           String         @id @default(uuid())
+  materialName String
+  receivedDate String?
+  supplier     String?
+  supplierNote String?
+  invoiceNo    String?
+  rolls        MaterialRoll[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model MaterialRoll {
+  id                String          @id @default(uuid())
+  receipt           MaterialReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receiptId         String
+  rollNo            Int
+  weightKg          Float           @default(0)
+  issueDate         String?
+  issuer            String?
+  productCode       String?
+  lotNo             String?
+  goodQty           String?
+  defectQty         String?
+  diecutQty         String?
+  diecutReceiveDate String?
+  packQty           String?
+  createdAt         DateTime        @default(now())
+}
+
 enum UserRole {
   ADMIN
   MANAGER
