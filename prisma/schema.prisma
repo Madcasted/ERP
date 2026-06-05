@@ -20,8 +20,10 @@ model Customer {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
+  role      String   @default("EMPLOYEE")
   phone     String?
   address   String?
+  image     String?
   orders    Order[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -38,6 +40,23 @@ model Product {
   details     String?
   image       String?
   qrCode      String?
+  qrColor     String?           @default("#000000")
+  labelCompany   String?        @default("T SIAMPACK CO., LTD.")
+  labelSize      String?
+  labelLot       String?
+  labelDate      String?
+  labelQty       Int?
+  labelPcs       String?        @default("PCS.")
+  labelInspector String?
+  labelQc1       String?
+  labelQc1Mode   String?        @default("text")
+  labelQc1Image  String?
+  labelQc2       String?
+  labelQc2Mode   String?        @default("text")
+  labelQc2Image  String?
+  labelWarning   String?
+  labelLots      Json?
+  printCount     Int?           @default(1)
   warehouse   Warehouse?        @relation(fields: [warehouseId], references: [id])
   warehouseId String?
   materials   ProductMaterial[]
@@ -47,56 +66,81 @@ model Product {
 }
 
 model Warehouse {
-  id         String    @id @default(uuid())
-  name       String
-  location   String?
-  image      String?
-  products   Product[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String    @id @default(uuid())
+  name      String
+  location  String?
+  image     String?
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Material {
-  id               String            @id @default(uuid())
+  id               String              @id @default(uuid())
   name             String
   unit             String?
   unitPrice        Float
   description      String?
+  supplier         String?
+  invoiceNo        String?
+  productCode      String?
+  weight           Float?
+  receivingDate    DateTime?
+  lotNumber        String?
   productMaterials ProductMaterial[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  receivingLots    MaterialReceiving[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model MaterialReceiving {
+  id               String    @id @default(uuid())
+  material         Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  materialId       String
+  supplier         String
+  invoiceNo        String
+  lotNumber        String
+  productCode      String?
+  weight           Float
+  quantity         Float
+  unit             String
+  receivingDate    DateTime
+  qcStatus         String?   @default("pending")
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model ProductMaterial {
-  id          String   @id @default(uuid())
-  product     Product  @relation(fields: [productId], references: [id])
-  productId   String
-  material    Material @relation(fields: [materialId], references: [id])
-  materialId  String
-  quantity    Float
-  unitPrice   Float
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(uuid())
+  product    Product  @relation(fields: [productId], references: [id])
+  productId  String
+  material   Material @relation(fields: [materialId], references: [id])
+  materialId String
+  quantity   Float
+  unitPrice  Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([productId, materialId])
 }
 
 model Order {
-  id          String      @id @default(uuid())
-  customer    Customer    @relation(fields: [customerId], references: [id])
-  customerId  String
-  items       OrderItem[]
-  status      OrderStatus @default(PENDING)
-  total       Float       @default(0)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id         String      @id @default(uuid())
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  customerId String
+  items      OrderItem[]
+  status     OrderStatus @default(PENDING)
+  total      Float       @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 }
 
 model OrderItem {
-  id        String   @id @default(uuid())
-  order     Order    @relation(fields: [orderId], references: [id])
+  id        String  @id @default(uuid())
+  order     Order   @relation(fields: [orderId], references: [id])
   orderId   String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
   productId String
   quantity  Int
   price     Float

@@ -9,7 +9,15 @@ export async function PUT(request, { params }) {
       name: body.name,
       unit: body.unit || null,
       unitPrice: Number(body.unitPrice) || 0,
+      description: body.description || "",
+      supplier: body.supplier || null,
+      invoiceNo: body.invoiceNo || null,
+      productCode: body.productCode || null,
+      weight: body.weight ? Number(body.weight) : null,
+      lotNumber: body.lotNumber || null,
+      receivingDate: body.receivingDate ? new Date(body.receivingDate) : null,
     },
+    include: { receivingLots: { orderBy: { receivingDate: "desc" } } }
   });
   return NextResponse.json(material);
 }
