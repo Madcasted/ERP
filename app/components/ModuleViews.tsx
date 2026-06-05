@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import jsQR from "jsqr";
 import ReportChart from "./ReportChart";
 import { MaterialReceivingTable } from "./MaterialReceivingTable";
+import { MaterialWIPView } from "./MaterialWIPView";
 
 // ─── Responsive Hook ──────────────────────────────────────────────────────────
 
@@ -2948,44 +2949,7 @@ export function InventoryView() {
       )}
 
       {activeTab === "materials" && (
-        <div className="card">
-          <div className="section-header" style={{ flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 12 : 0 }}>
-            <h3>รายการวัสดุ</h3>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาวัสดุ..." style={{ flex: 1, minWidth: 200 }} />
-              <button type="button" className="btn" onClick={openMaterialAdd}>+ เพิ่มวัสดุ</button>
-            </div>
-          </div>
-          {isMobile ? (
-            <div style={{ padding: "4px 0" }}>
-              {loading && <div style={{ textAlign: "center", padding: 24, color: "#888" }}>กำลังโหลดข้อมูล...</div>}
-              {!loading && materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.unit?.toLowerCase().includes(search.toLowerCase())).length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#888" }}>ยังไม่มีวัสดุ</div>}
-              {!loading && materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.unit?.toLowerCase().includes(search.toLowerCase())).map(renderMaterialCard)}
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table>
-                <thead><tr><th>ชื่อ</th><th>หน่วย</th><th>ราคาต่อหน่วย</th><th>คำอธิบาย</th><th>จัดการ</th></tr></thead>
-                <tbody>
-                  {loading && <tr><td colSpan={5} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
-                  {!loading && materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.unit?.toLowerCase().includes(search.toLowerCase())).length === 0 && <tr><td colSpan={5} className="text-center">ยังไม่มีวัสดุ</td></tr>}
-                  {!loading && materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.unit?.toLowerCase().includes(search.toLowerCase())).map((material) => (
-                    <tr key={material.id} style={{ cursor: "pointer" }} onClick={() => { setSelectedMaterial(material); setShowMaterialDetailModal(true); }}>
-                      <td style={{ fontWeight: 600 }}>{material.name}</td>
-                      <td>{material.unit || "-"}</td>
-                      <td>{material.unitPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" })}</td>
-                      <td style={{ fontSize: 12, color: "#666", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{material.description || "-"}</td>
-                      <td className="table-actions" onClick={(e) => e.stopPropagation()}>
-                        <button className="btn btn-small" type="button" onClick={() => openMaterialEdit(material)}>แก้ไข</button>
-                        <button className="btn btn-small btn-danger" type="button" onClick={() => handleMaterialDelete(material.id, material.name)}>ลบ</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <MaterialWIPView />
       )}
 
       {activeTab === "warehouses" && (

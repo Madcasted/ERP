@@ -110,16 +110,16 @@ export function MaterialReceivingTable({
           // Reset file input
           if (fileInputRef.current) fileInputRef.current.value = "";
           
-        } catch (err) {
-          setImportError(`เกิดข้อผิดพลาดในการอ่านไฟล์: ${err.message}`);
+        } catch (err: any) {
+          setImportError(`เกิดข้อผิดพลาดในการอ่านไฟล์: ${err?.message || err}`);
         } finally {
           setIsImporting(false);
         }
       };
 
       reader.readAsArrayBuffer(file);
-    } catch (err) {
-      setImportError(`ไม่สามารถนำเข้าไฟล์ได้: ${err.message}`);
+    } catch (err: any) {
+      setImportError(`ไม่สามารถนำเข้าไฟล์ได้: ${err?.message || err}`);
       setIsImporting(false);
     }
   };
