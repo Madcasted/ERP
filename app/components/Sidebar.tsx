@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 const navItems = [
   { id: "dashboard", label: "แดชบอร์ด", icon: "🏠" },
   { id: "inventory", label: "คลังสินค้า", icon: "📦" },
-  { id: "transaction", label: "ธุรกรรม", icon: "↕️" },
+  { id: "customer", label: "สมาชิก", icon: "" },
+  { id: "transaction", label: "คลังสต็อก", icon: "↕️" },
   { id: "production", label: "การผลิต", icon: "🤖" },
   { id: "machine", label: "เครื่องจักร", icon: "⚙️" },
   { id: "report", label: "รายงาน", icon: "📊" },
@@ -23,7 +25,13 @@ export function Sidebar({ selected = "dashboard", onSelect, collapsed = false, o
   return (
     <section id="sidebar" className={collapsed ? "hide" : ""}>
       <a href="#" className="brand" onClick={(e) => { e.preventDefault(); onSelect?.("dashboard"); }}>
-        <i className='bx bxs-smile bx-lg'></i>
+    <Image
+      src="/logo.png"
+      alt="Logo"
+      width={56}
+      height={56}
+      className="brand-logo"
+    />
         <span className="text">ทีสยามแพ็ค</span>
       </a>
 

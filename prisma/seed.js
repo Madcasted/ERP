@@ -17,6 +17,7 @@ async function main() {
     create: {
       name: "บริษัท ตัวอย่าง จำกัด",
       email: "customer@example.com",
+      role: "EMPLOYEE",
       phone: "0812345678",
       address: "กรุงเทพมหานคร",
     },

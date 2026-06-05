@@ -1,0 +1,14 @@
+-- AlterTable
+ALTER TABLE "Product"
+ADD COLUMN "labelCompany" TEXT DEFAULT 'T SIAMPACK CO., LTD.',
+ADD COLUMN "labelSize" TEXT,
+ADD COLUMN "labelLot" TEXT,
+ADD COLUMN "labelDate" TEXT,
+ADD COLUMN "labelQty" INTEGER,
+ADD COLUMN "labelPcs" TEXT DEFAULT 'PCS.',
+ADD COLUMN "labelInspector" TEXT,
+ADD COLUMN "labelQc1" TEXT,
+ADD COLUMN "labelQc2" TEXT,
+ADD COLUMN "labelWarning" TEXT,
+ADD COLUMN "labelLots" JSONB,
+ADD COLUMN "printCount" INTEGER DEFAULT 1;

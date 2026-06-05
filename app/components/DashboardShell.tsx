@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import ReportChart from "./ReportChart";
+import { CustomerView } from "./CustomerView";
 import { InventoryView, MachineView, ProductionView, ReportView, SystemView, TransactionView } from "./ModuleViews";
 
 type Product = any;
@@ -11,6 +12,7 @@ type Order = any;
 const sectionTitle: Record<string, string> = {
   dashboard: "แดชบอร์ด",
   inventory: "คลังสินค้า",
+  customer: "ลูกค้า",
   transaction: "ธุรกรรม",
   production: "การผลิต",
   machine: "เครื่องจักร",
@@ -201,6 +203,7 @@ export default function DashboardShell({ products, orders, totals }: { products:
           )}
 
           {selected === "inventory" && <InventoryView />}
+          {selected === "customer" && <CustomerView />}
           {selected === "transaction" && <TransactionView />}
           {selected === "production" && <ProductionView />}
           {selected === "machine" && <MachineView />}
