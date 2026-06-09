@@ -3463,43 +3463,532 @@ export function ProductionView() {
   );
 }
 
+import VaccumMachineSettings from "./VaccumMachineView";
+import MachineSettingsTable from "./MachineSettingsTable";
+
+// ─── Machine Types ─────────────────────────────────────────────────────────────
+
+type Machine = {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type MachineForm = {
+  id?: string;
+  name: string;
+  code: string;
+  description: string;
+};
+
+function getInitials(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "M";
+}
+
+function MachineAvatar({ machine, size = 36 }: { machine: Pick<Machine, "name">; size?: number }) {
+  const colors = ["#2563eb", "#16a34a", "#dc2626", "#ca8a04", "#7c3aed", "#db2777", "#0891b2"];
+  const colorIndex = machine.name.length % colors.length;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: `linear-gradient(135deg, ${colors[colorIndex]}, ${colors[(colorIndex + 1) % colors.length]})`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: Math.max(14, Math.round(size * 0.38)), color: "white", fontWeight: 700, flexShrink: 0,
+    }}>
+      {getInitials(machine.name)}
+    </div>
+  );
+}
+
 // ─── MachineView ──────────────────────────────────────────────────────────────
 
 export function MachineView() {
-  const isMobile = useIsMobile();
-  const machines = [
-    { id: "MC-001", name: "เครื่องพิมพ์อิงค์เจ็ต", status: "พร้อมใช้งาน", mode: "Auto", lastActive: "2026-05-20" },
-    { id: "MC-002", name: "เครื่องตัดเลเซอร์", status: "รอซ่อม", mode: "Manual", lastActive: "2026-05-19" },
-    { id: "MC-003", name: "หุ่นยนต์ประกอบ", status: "กำลังทำงาน", mode: "Auto", lastActive: "2026-05-21" },
-  ];
-  const statusColor: Record<string, string> = { "พร้อมใช้งาน": "#16a34a", "รอซ่อม": "#dc2626", "กำลังทำงาน": "#2563eb" };
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Modal state for Add / Edit
+  const [showMachineModal, setShowMachineModal] = useState(false);
+  const [machineModalMode, setMachineModalMode] = useState<"add" | "edit">("add");
+  const [machineModalTab, setMachineModalTab] = useState<"info" | "production" | "settings">("info");
+  const [editForm, setEditForm] = useState<{ name: string; code: string; description: string }>({
+    name: "", code: "", description: "",
+  });
+
+  const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
+  const [showMachineDetail, setShowMachineDetail] = useState(false);
+  const [machineDetailTab, setMachineDetailTab] = useState<"production" | "settings">("production");
+  const [saving, setSaving] = useState(false);
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    show: boolean;
+    message: string;
+    onConfirm: () => void;
+  }>({ show: false, message: "", onConfirm: () => {} });
+
+  // ── Fetch machines ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    let active = true;
+    async function fetchMachines() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/machines");
+        const data = await res.json();
+        if (active) setMachines(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    fetchMachines();
+    return () => { active = false; };
+  }, []);
+
+
+  async function refreshData() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/machines");
+      const data = await res.json();
+      setMachines(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  const filteredMachines = useMemo(
+    () => machines.filter((m) =>
+      m.name.toLowerCase().includes(search.toLowerCase()) ||
+      m.code.toLowerCase().includes(search.toLowerCase()) ||
+      (m.description ?? "").toLowerCase().includes(search.toLowerCase())
+    ),
+    [machines, search]
+  );
+
+  function showMsg(text: string) {
+    setMessage(text);
+    setError(null);
+    window.setTimeout(() => setMessage(null), 3000);
+  }
+
+  function showErr(text: string) {
+    setError(text);
+    setMessage(null);
+    window.setTimeout(() => setError(null), 4000);
+  }
+
+  function confirmDelete(msg: string, action: () => void) {
+    setDeleteConfirm({ show: true, message: msg, onConfirm: action });
+  }
+
+  // ── Modal Edit / Add ─────────────────────────────────────────────────────────
+
+  function startAdd() {
+    setShowMachineDetail(false);
+    setEditForm({ name: "", code: "", description: "" });
+    setMachineModalMode("add");
+    setMachineModalTab("info");
+    setShowMachineModal(true);
+  }
+
+  function startEdit(machine: Machine) {
+    setShowMachineDetail(false);
+    setSelectedMachine(machine);
+    setEditForm({
+      name: machine.name,
+      code: machine.code,
+      description: machine.description ?? "",
+    });
+    setMachineModalMode("edit");
+    setMachineModalTab("info");
+    setShowMachineModal(true);
+  }
+
+  function closeModal() {
+    setShowMachineModal(false);
+    setEditForm({ name: "", code: "", description: "" });
+  }
+
+  async function saveEdit(id: string | null) {
+    const isNew = id === null || id === "__new__";
+    if (!editForm.name.trim()) { showErr("กรุณากรอกชื่อเครื่องจักร"); return; }
+    if (!editForm.code.trim()) { showErr("กรุณากรอกรหัสเครื่องจักร"); return; }
+
+    setSaving(true);
+    const payload = {
+      name: editForm.name.trim(),
+      code: editForm.code.trim(),
+      description: editForm.description.trim() || null,
+    };
+
+    const method = isNew ? "POST" : "PUT";
+    const url = isNew ? "/api/machines" : `/api/machines/${id}`;
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showErr(body?.message ?? "เกิดข้อผิดพลาด กรุณาลองใหม่");
+        setSaving(false);
+        return;
+      }
+
+      await refreshData();
+      showMsg(isNew ? "เพิ่มเครื่องจักรเรียบร้อยแล้ว" : "แก้ไขเครื่องจักรเรียบร้อยแล้ว");
+      if (isNew) {
+        setShowMachineModal(false);
+      } else {
+        // After edit, update selectedMachine with new data and stay on modal (production tab)
+        const updated = await fetch("/api/machines").then(r => r.json()).catch(() => machines);
+        const updatedMachine = (Array.isArray(updated) ? updated : machines).find((m: Machine) => m.id === id);
+        if (updatedMachine) setSelectedMachine(updatedMachine);
+        setMachineModalTab("production");
+      }
+      setEditForm({ name: "", code: "", description: "" });
+    } catch (e) {
+      console.error(e);
+      showErr("เกิดข้อผิดพลาด กรุณาลองใหม่");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Delete ───────────────────────────────────────────────────────────────────
+
+  function handleDelete(id: string, name: string) {
+    confirmDelete(`คุณแน่ใจที่จะลบเครื่อง "${name}" ใช่ไหม?`, async () => {
+      setDeleteConfirm((d) => ({ ...d, show: false }));
+      try {
+        const res = await fetch(`/api/machines/${id}`, { method: "DELETE" });
+        if (res.ok) {
+          setMachines((prev) => prev.filter((m) => m.id !== id));
+          if (selectedMachine?.id === id) { setShowMachineDetail(false); setSelectedMachine(null); }
+          showMsg("ลบเครื่องจักรเรียบร้อยแล้ว");
+        } else {
+          showErr("ลบไม่สำเร็จ กรุณาลองใหม่");
+        }
+      } catch (e) {
+        console.error(e);
+        showErr("เกิดข้อผิดพลาดขณะลบเครื่องจักร");
+      }
+    });
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "6px 8px", border: "1.5px solid #3b82f6", borderRadius: 6,
+    fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#f8faff",
+  };
 
   return (
     <section className="module-panel">
-      <div className="module-header"><div><h2>เครื่องจักร</h2><p>ตรวจสอบสถานะและบันทึกการทำงานของเครื่องจักร</p></div></div>
-      {isMobile ? (
-        <div>
-          {machines.map((m) => (
-            <div key={m.id} style={{ background: "white", borderRadius: 16, padding: 16, marginBottom: 12, border: "1px solid #e8f0e9", boxShadow: "0 2px 8px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: "#f0f9ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>⚙️</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{m.name}</div>
-                <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>{m.id} · {m.mode} · {m.lastActive}</div>
+      <SavingOverlay visible={saving} />
+
+      {/* Delete Confirm Modal */}
+      {deleteConfirm.show && (
+        <DeleteConfirmModal
+          message={deleteConfirm.message}
+          onConfirm={deleteConfirm.onConfirm}
+          onCancel={() => setDeleteConfirm((d) => ({ ...d, show: false }))}
+        />
+      )}
+
+      {/* ── Add / Edit Modal ── */}
+      {showMachineModal && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+          display: "flex", justifyContent: "center", alignItems: "flex-start",
+          zIndex: 2000, padding: "20px 16px", overflowY: "auto",
+        }}>
+          <div style={{
+            background: "white", borderRadius: 16, width: "100%",
+            maxWidth: machineModalMode === "edit" ? 900 : 560,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.22)", marginTop: 20, marginBottom: 20,
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "20px 24px", borderBottom: "1px solid #e2e8f0",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {machineModalMode === "edit" && selectedMachine && (
+                  <MachineAvatar machine={selectedMachine} size={36} />
+                )}
+                <h2 style={{ margin: 0, fontSize: 20, color: "#1a202c" }}>
+                  {machineModalMode === "add" ? "➕ เพิ่มเครื่องจักรใหม่" : `✏️ แก้ไข: ${selectedMachine?.name}`}
+                </h2>
               </div>
-              <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 20, color: statusColor[m.status] || "#374151", background: `${statusColor[m.status] || "#374151"}18` }}>{m.status}</span>
+              <button onClick={closeModal} style={{
+                background: "none", border: "none", fontSize: 22, cursor: "pointer",
+                color: "#718096", padding: "0 4px", lineHeight: 1,
+              }}>✕</button>
             </div>
-          ))}
+
+            {/* Tab switcher (edit mode only) */}
+            {machineModalMode === "edit" && (
+              <div style={{
+                display: "flex", gap: 4, padding: "12px 24px 0",
+                borderBottom: "1px solid #e2e8f0",
+              }}>
+                {([
+                  { key: "info", label: "📝 ข้อมูลเครื่องจักร" },
+                  { key: "production", label: "📋 บันทึกการผลิต" },
+                  { key: "settings", label: "⚙️ ตั้งค่าเครื่องจักร" },
+                ] as { key: "info" | "production" | "settings"; label: string }[]).map(tab => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setMachineModalTab(tab.key)}
+                    style={{
+                      padding: "9px 18px", border: "none", cursor: "pointer",
+                      fontSize: 13, fontWeight: machineModalTab === tab.key ? 700 : 400,
+                      background: "transparent",
+                      color: machineModalTab === tab.key ? "#1a3a5c" : "#64748b",
+                      borderBottom: machineModalTab === tab.key ? "2px solid #2563eb" : "2px solid transparent",
+                      marginBottom: -1, transition: "all 0.15s",
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Modal Body */}
+            <div style={{ padding: machineModalMode === "edit" && machineModalTab !== "info" ? "20px" : "24px" }}>
+
+              {/* Info / Form tab */}
+              {(machineModalMode === "add" || machineModalTab === "info") && (
+                <div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: 14, color: "#374151", marginBottom: 6 }}>
+                        ชื่อเครื่องจักร <span style={{ color: "#e53e3e" }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        placeholder="เช่น Vaccum Machine #1"
+                        autoFocus
+                        style={{
+                          width: "100%", padding: "10px 14px", border: "1.5px solid #d1d5db",
+                          borderRadius: 8, fontSize: 15, boxSizing: "border-box" as const, outline: "none",
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: 14, color: "#374151", marginBottom: 6 }}>
+                        รหัสเครื่องจักร <span style={{ color: "#e53e3e" }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.code}
+                        onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
+                        placeholder="เช่น VAC-001"
+                        style={{
+                          width: "100%", padding: "10px 14px", border: "1.5px solid #d1d5db",
+                          borderRadius: 8, fontSize: 15, boxSizing: "border-box" as const, outline: "none",
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: 14, color: "#374151", marginBottom: 6 }}>
+                        คำอธิบาย (ถ้ามี)
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.description}
+                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                        placeholder="คำอธิบายสั้นๆ เกี่ยวกับเครื่องจักร"
+                        style={{
+                          width: "100%", padding: "10px 14px", border: "1.5px solid #d1d5db",
+                          borderRadius: 8, fontSize: 15, boxSizing: "border-box" as const, outline: "none",
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 28 }}>
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      style={{
+                        padding: "10px 28px", background: "#e2e8f0", color: "#333",
+                        border: "none", borderRadius: 8, fontSize: 15, cursor: "pointer", fontWeight: 600,
+                      }}
+                    >ยกเลิก</button>
+                    <button
+                      type="button"
+                      onClick={() => saveEdit(machineModalMode === "edit" && selectedMachine ? selectedMachine.id : "__new__")}
+                      disabled={saving}
+                      style={{
+                        padding: "10px 28px",
+                        background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                        color: "white", border: "none", borderRadius: 8,
+                        fontSize: 15, cursor: "pointer", fontWeight: 700,
+                        opacity: saving ? 0.7 : 1,
+                      }}
+                    >
+                      {machineModalMode === "add" ? "➕ เพิ่มเครื่องจักร" : "💾 บันทึกการแก้ไข"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Production tab — VaccumMachineSettings */}
+              {machineModalMode === "edit" && machineModalTab === "production" && selectedMachine && (
+                <VaccumMachineSettings machineId={selectedMachine.id} machineName={selectedMachine.name} />
+              )}
+
+              {/* Settings tab — MachineSettingsTable */}
+              {machineModalMode === "edit" && machineModalTab === "settings" && selectedMachine && (
+                <MachineSettingsTable machineId={selectedMachine.id} machineName={selectedMachine.name} />
+              )}
+            </div>
+          </div>
         </div>
-      ) : (
+      )}
+
+      {/* Header */}
+      <div className="module-header">
+        <div>
+          <h2>เครื่องจักร</h2>
+          <p>จัดการเครื่องจักรทั้งหมด ดูและแก้ไขข้อมูลการตั้งค่าเครื่องจักร</p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      {message && <div className="alert success">{message}</div>}
+      {error && <div className="alert">{error}</div>}
+
+      {/* ── Machine Settings / Detail View (inline below table) ── */}
+      {showMachineDetail && selectedMachine && (
+        <div className="card" style={{ marginBottom: 20, padding: 20, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 12 }}>
+              <MachineAvatar machine={selectedMachine} size={40} />
+              <span>{selectedMachine.name} <span style={{ fontSize: 14, fontWeight: 400, color: "#718096" }}>({selectedMachine.code})</span></span>
+            </h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn btn-small" onClick={() => { setShowMachineDetail(false); startEdit(selectedMachine); }}>✏️ แก้ไข</button>
+          <button type="button" className="btn btn-small" style={{ background: "#2563eb", color: "white", border: "none" }} onClick={() => { setShowMachineDetail(false); startEdit(selectedMachine); setMachineModalTab("production"); }}>📋 บันทึกการผลิต</button>
+              <button type="button" className="btn btn-small btn-danger" onClick={() => { const m = selectedMachine; setShowMachineDetail(false); handleDelete(m.id, m.name); }}>🗑️ ลบ</button>
+              <button onClick={() => setShowMachineDetail(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#666", padding: "0 4px" }}>✕</button>
+            </div>
+          </div>
+          {/* Tab switcher */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, background: "#f1f5f9", borderRadius: 10, padding: 4, width: "fit-content" }}>
+            <button
+              type="button"
+              onClick={() => setMachineDetailTab("production")}
+              style={{
+                padding: "8px 18px", borderRadius: 8, border: "none",
+                fontWeight: machineDetailTab === "production" ? 700 : 400,
+                fontSize: 13, cursor: "pointer",
+                background: machineDetailTab === "production" ? "white" : "transparent",
+                color: machineDetailTab === "production" ? "#1a202c" : "#64748b",
+                boxShadow: machineDetailTab === "production" ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                transition: "all 0.15s",
+              }}
+            >
+              📋 บันทึกการผลิต (เดิม)
+            </button>
+            <button
+              type="button"
+              onClick={() => setMachineDetailTab("settings")}
+              style={{
+                padding: "8px 18px", borderRadius: 8, border: "none",
+                fontWeight: machineDetailTab === "settings" ? 700 : 400,
+                fontSize: 13, cursor: "pointer",
+                background: machineDetailTab === "settings" ? "white" : "transparent",
+                color: machineDetailTab === "settings" ? "#1a202c" : "#64748b",
+                boxShadow: machineDetailTab === "settings" ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                transition: "all 0.15s",
+              }}
+            >
+              ⚙️ ตั้งค่าเครื่องจักร (ตาราง)
+            </button>
+          </div>
+
+          {machineDetailTab === "production" ? (
+            <VaccumMachineSettings machineId={selectedMachine.id} machineName={selectedMachine.name} />
+          ) : (
+            <MachineSettingsTable machineId={selectedMachine.id} machineName={selectedMachine.name} />
+          )}
+        </div>
+      )}
+
+      {/* Table card */}
+      <div className="card">
+        <div className="section-header">
+          <h3>เครื่องจักรทั้งหมด ({filteredMachines.length} เครื่อง)</h3>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ หรือรหัสเครื่องจักร" />
+            <button type="button" className="btn" onClick={startAdd}>+ เพิ่มเครื่องจักร</button>
+          </div>
+        </div>
+
         <div className="table-responsive">
           <table>
-            <thead><tr><th>รหัสเครื่อง</th><th>ชื่อเครื่อง</th><th>สถานะ</th><th>โหมด</th><th>วันที่ใช้งานล่าสุด</th></tr></thead>
+            <thead>
+              <tr>
+                <th style={{ minWidth: 200 }}>ชื่อเครื่องจักร</th>
+                <th style={{ minWidth: 140 }}>รหัส</th>
+                <th style={{ minWidth: 250 }}>คำอธิบาย</th>
+                <th style={{ minWidth: 120 }}>วันที่สร้าง</th>
+                <th style={{ minWidth: 140 }}>จัดการ</th>
+              </tr>
+            </thead>
             <tbody>
-              {machines.map((m) => <tr key={m.id}><td>{m.id}</td><td>{m.name}</td><td>{m.status}</td><td>{m.mode}</td><td>{m.lastActive}</td></tr>)}
+              {loading && <tr><td colSpan={5} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
+              {!loading && filteredMachines.length === 0 && (
+                <tr><td colSpan={5} className="text-center">{search ? "ไม่พบเครื่องจักรที่ค้นหา" : "ยังไม่มีเครื่องจักรในระบบ"}</td></tr>
+              )}
+              {!loading && filteredMachines.map((machine) => (
+                /* ── Read-only row ── */
+                <tr key={machine.id} style={{ cursor: "pointer" }}
+                  onClick={() => { setSelectedMachine(machine); setShowMachineDetail(true); }}
+                >
+                  <td>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <MachineAvatar machine={machine} />
+                      <span style={{ fontWeight: 500 }}>{machine.name}</span>
+                    </div>
+                  </td>
+                  <td><code style={{ background: "#f1f5f9", padding: "2px 8px", borderRadius: 4, fontSize: 13 }}>{machine.code}</code></td>
+                  <td style={{ maxWidth: 250 }}>
+                    {machine.description
+                      ? <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{machine.description}</span>
+                      : <span className="text-muted">-</span>}
+                  </td>
+                  <td>{machine.createdAt ? new Date(machine.createdAt).toLocaleDateString("th-TH") : "-"}</td>
+                  <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                    <button className="btn btn-small" type="button" onClick={() => startEdit(machine)}>แก้ไข</button>
+                    <button className="btn btn-small btn-danger" type="button" onClick={() => handleDelete(machine.id, machine.name)}>ลบ</button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
     </section>
   );
 }
