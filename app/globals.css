@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Poppins:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Poppins:wght@400;500;600;700&family=Sarabun:wght@400;600;700&display=swap');
 @import url('https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css');
 
 * {
@@ -1029,5 +1029,90 @@ body.dark #content nav .profile-menu li a {
     #content main .table-data .todo .todo-list {
         min-width: 420px;
     }
+}
+
+/* ===== Print Styles for Vaccum Machine Form ===== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .no-print,
+  .no-print *,
+  #sidebar,
+  #sidebar *,
+  #content nav,
+  #content nav *,
+  .col-actions {
+    display: none !important;
+  }
+
+  .print-area,
+  .print-area *,
+  .print-content,
+  .print-content * {
+    visibility: visible !important;
+  }
+
+  .print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-content {
+    padding: 0 !important;
+    font-family: 'Sarabun', 'Prompt', sans-serif;
+  }
+
+  .print-content table {
+    border-collapse: collapse !important;
+  }
+
+  .print-content th,
+  .print-content td,
+  .print-content input {
+    font-size: 10px !important;
+  }
+
+  .print-content input {
+    border: none !important;
+    border-bottom: 1px solid #999 !important;
+    background: transparent !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    padding: 1px 2px !important;
+  }
+
+  .print-content .vaccum-header-table input {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+  }
+
+  /* Ensure dark header backgrounds print */
+  .print-content th,
+  .print-content td[style*="background:"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .table-responsive-vaccum {
+    overflow: visible !important;
+  }
+
+  .table-responsive-vaccum table {
+    min-width: auto !important;
+    width: 100% !important;
+  }
 }
 

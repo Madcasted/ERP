@@ -193,3 +193,59 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
+
+model Machine {
+  id          String          @id @default(uuid())
+  name        String
+  code        String          @unique
+  description String?
+  logs        MachineLog[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model MachineLog {
+  id            String    @id @default(uuid())
+  machine       Machine   @relation(fields: [machineId], references: [id])
+  machineId     String
+  productName   String
+  matCode       String?
+  company       String?
+  rollNo        Int
+  matWeight     Float?
+  timeOpen      Float?
+  timeClose     Float?
+  goodPcs       Int       @default(0)
+  defectPcs     Int       @default(0)
+  operator1     String?
+  operator2     String?
+  returnedBy    String?
+  returnedQty   Int?
+  // Timer settings (seconds)
+  timerPrintDown    Float?
+  timerPrintUp      Float?
+  timerPrintTop     Float?
+  timerOpenVac1     Float?
+  timerCloseVac1    Float?
+  timerOpenVac2     Float?
+  timerCloseVac2    Float?
+  timerOpenFan      Float?
+  timerCloseFan     Float?
+  timerOpenBlow     Float?
+  timerCloseBlow    Float?
+  timerOpenHeat     Float?
+  timerHeat         Float?
+  timerOpenShield   Float?
+  // Other settings
+  unrollSpeed   Float?
+  runSpeed      Float?
+  runLength     Float?
+  programNo     Int?
+  // Heat settings (rows x ovens)
+  heat          Json?
+  recordedBy    String?
+  recordedAt    DateTime?
+  logDate       DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
