@@ -163,6 +163,7 @@ export default function VaccumMachineSettings({ machineId, machineName }: Props)
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirmType, setDeleteConfirmType] = useState<"row" | "heat" | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -477,15 +478,21 @@ export default function VaccumMachineSettings({ machineId, machineName }: Props)
   function deleteHeatRow(id: string) {
     if (heatRows.length <= 1) return;
     setDeleteConfirm(id);
+    setDeleteConfirmType("heat");
   }
 
-  function confirmDeleteHeatRow(id: string) {
-    setHeatRows((prev) => {
-      const filtered = prev.filter((r) => r.id !== id);
-      // Re-label rows
-      return filtered.map((r, i) => ({ ...r, rowLabel: `แถวที่ ${i + 1}` }));
-    });
+  function confirmDeleteAction() {
+    if (!deleteConfirm) return;
+    if (deleteConfirmType === "heat") {
+      setHeatRows((prev) => {
+        const filtered = prev.filter((r) => r.id !== deleteConfirm);
+        return filtered.map((r, i) => ({ ...r, rowLabel: `แถวที่ ${i + 1}` }));
+      });
+    } else {
+      setRows((prev) => prev.filter((r) => r.id !== deleteConfirm));
+    }
     setDeleteConfirm(null);
+    setDeleteConfirmType(null);
   }
 
   // ── Render ──
@@ -534,9 +541,9 @@ export default function VaccumMachineSettings({ machineId, machineName }: Props)
             <h3 style={{ margin: "0 0 12px 0", fontSize: 20 }}>ยืนยันการลบ</h3>
             <p style={{ color: "#555", marginBottom: 28 }}>คุณต้องการลบรายการนี้ใช่หรือไม่?</p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-              <button onClick={() => confirmDeleteHeatRow(deleteConfirm)}
+              <button onClick={confirmDeleteAction}
                 style={{ ...buttonStyle, background: "#e53e3e", color: "white" }}>ใช่ ลบเลย</button>
-              <button onClick={() => setDeleteConfirm(null)}
+              <button onClick={() => { setDeleteConfirm(null); setDeleteConfirmType(null); }}
                 style={{ ...buttonStyle, background: "#e2e8f0", color: "#333" }}>ไม่</button>
             </div>
           </div>
@@ -708,7 +715,7 @@ export default function VaccumMachineSettings({ machineId, machineName }: Props)
                           <td className="col-actions no-print" style={{ border: "1px solid #333", padding: "3px 5px", textAlign: "center", whiteSpace: "nowrap" }}>
                             <button onClick={() => openEditModal(row)}
                               style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "2px 4px", color: "#2563eb" }} title="แก้ไข">✏️</button>
-                            <button onClick={() => setDeleteConfirm(row.id)}
+                            <button onClick={() => { setDeleteConfirm(row.id); setDeleteConfirmType("row"); }}
                               style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "2px 4px", color: "#dc2626" }} title="ลบ">🗑️</button>
                           </td>
                         </tr>

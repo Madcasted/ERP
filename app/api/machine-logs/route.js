@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { randomUUID } from "crypto";
 
 export async function GET(request) {
   try {
@@ -27,70 +26,53 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const id = randomUUID();
-    const now = new Date();
 
-    const [log] = await prisma.$queryRaw`
-      INSERT INTO "MachineLog" (
-        "id", "machineId",
-        "productName", "matCode", "company",
-        "rollNo", "matWeight",
-        "timeOpen", "timeClose",
-        "goodPcs", "defectPcs",
-        "operator1", "operator2",
-        "returnedBy", "returnedQty",
-        "timerPrintDown", "timerPrintUp", "timerPrintTop",
-        "timerOpenVac1", "timerCloseVac1",
-        "timerOpenVac2", "timerCloseVac2",
-        "timerOpenFan", "timerCloseFan",
-        "timerOpenBlow", "timerCloseBlow",
-        "timerOpenHeat", "timerHeat", "timerOpenShield",
-        "unrollSpeed", "runSpeed", "runLength", "programNo",
-        "heat", "recordedBy", "recordedAt",
-        "logDate", "createdAt", "updatedAt"
-      ) VALUES (
-        ${id},
-        ${body.machineId},
-        ${body.productName || ""},
-        ${body.matCode || null},
-        ${body.company || null},
-        ${body.rollNo || 0},
-        ${body.matWeight || null},
-        ${body.timeOpen || null},
-        ${body.timeClose || null},
-        ${body.goodPcs || 0},
-        ${body.defectPcs || 0},
-        ${body.operator1 || null},
-        ${body.operator2 || null},
-        ${body.returnedBy || null},
-        ${body.returnedQty || null},
-        ${body.timerPrintDown || null},
-        ${body.timerPrintUp || null},
-        ${body.timerPrintTop || null},
-        ${body.timerOpenVac1 || null},
-        ${body.timerCloseVac1 || null},
-        ${body.timerOpenVac2 || null},
-        ${body.timerCloseVac2 || null},
-        ${body.timerOpenFan || null},
-        ${body.timerCloseFan || null},
-        ${body.timerOpenBlow || null},
-        ${body.timerCloseBlow || null},
-        ${body.timerOpenHeat || null},
-        ${body.timerHeat || null},
-        ${body.timerOpenShield || null},
-        ${body.unrollSpeed || null},
-        ${body.runSpeed || null},
-        ${body.runLength || null},
-        ${body.programNo || null},
-        ${body.heat ? JSON.stringify(body.heat) : null},
-        ${body.recordedBy || null},
-        ${body.recordedAt ? new Date(body.recordedAt) : null},
-        ${body.logDate ? new Date(body.logDate) : now},
-        ${now},
-        ${now}
-      )
-      RETURNING "id"
-    `;
+    // Parse heat if it's a string
+    let heatData = body.heat;
+    if (typeof heatData === 'string') {
+      try { heatData = JSON.parse(heatData); } catch(e) { heatData = null; }
+    }
+
+    const log = await prisma.machineLog.create({
+      data: {
+        machineId: body.machineId,
+        productName: body.productName || "",
+        matCode: body.matCode || null,
+        company: body.company || null,
+        rollNo: body.rollNo || 0,
+        matWeight: body.matWeight || null,
+        timeOpen: body.timeOpen || null,
+        timeClose: body.timeClose || null,
+        goodPcs: body.goodPcs || 0,
+        defectPcs: body.defectPcs || 0,
+        operator1: body.operator1 || null,
+        operator2: body.operator2 || null,
+        returnedBy: body.returnedBy || null,
+        returnedQty: body.returnedQty || null,
+        timerPrintDown: body.timerPrintDown || null,
+        timerPrintUp: body.timerPrintUp || null,
+        timerPrintTop: body.timerPrintTop || null,
+        timerOpenVac1: body.timerOpenVac1 || null,
+        timerCloseVac1: body.timerCloseVac1 || null,
+        timerOpenVac2: body.timerOpenVac2 || null,
+        timerCloseVac2: body.timerCloseVac2 || null,
+        timerOpenFan: body.timerOpenFan || null,
+        timerCloseFan: body.timerCloseFan || null,
+        timerOpenBlow: body.timerOpenBlow || null,
+        timerCloseBlow: body.timerCloseBlow || null,
+        timerOpenHeat: body.timerOpenHeat || null,
+        timerHeat: body.timerHeat || null,
+        timerOpenShield: body.timerOpenShield || null,
+        unrollSpeed: body.unrollSpeed || null,
+        runSpeed: body.runSpeed || null,
+        runLength: body.runLength || null,
+        programNo: body.programNo || null,
+        heat: heatData,
+        recordedBy: body.recordedBy || null,
+        recordedAt: body.recordedAt ? new Date(body.recordedAt) : null,
+        logDate: body.logDate ? new Date(body.logDate) : new Date(),
+      },
+    });
 
     return NextResponse.json(log, { status: 201 });
   } catch (error) {
