@@ -2,12 +2,27 @@
 
 import React, { useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
-import ReportChart from "./ReportChart";
 import { CustomerView } from "./CustomerView";
 import { InventoryView, MachineView, ProductionView, ReportView, SystemView, TransactionView } from "./ModuleViews";
+import DashboardCharts from "./DashboardCharts";
 
 type Product = any;
 type Order = any;
+type MaterialReceiving = any;
+type Machine = any;
+
+type DashboardTotals = {
+  products: number;
+  lowStock: number;
+  pendingOrders: number;
+  confirmedOrders: number;
+  deliveredOrders: number;
+  customers: number;
+  materials: number;
+  machines: number;
+  orders: number;
+  totalRevenue: number;
+};
 
 const sectionTitle: Record<string, string> = {
   dashboard: "แดชบอร์ด",
@@ -20,13 +35,35 @@ const sectionTitle: Record<string, string> = {
   system: "ระบบ",
 };
 
-export default function DashboardShell({ products, orders, totals }: { products: Product[]; orders: Order[]; totals: any }) {
+const currencyFormatter = new Intl.NumberFormat("th-TH", {
+  style: "currency",
+  currency: "THB",
+  maximumFractionDigits: 0,
+});
+
+export default function DashboardShell({
+  products,
+  orders,
+  totals,
+  recentMaterials,
+  lowStockProducts,
+  recentMachines,
+}: {
+  products: Product[];
+  orders: Order[];
+  totals: DashboardTotals;
+  recentMaterials: MaterialReceiving[];
+  lowStockProducts: Product[];
+  recentMachines: Machine[];
+}) {
   const [selected, setSelected] = useState<string>("dashboard");
   const [sidebarHidden, setSidebarHidden] = useState<boolean>(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [reportView, setReportView] = useState<"graph" | "numbers">("graph");
+  const [timeRange, setTimeRange] = useState<"month" | "quarter" | "year">("month");
 
   useEffect(() => {
     document.body.classList.toggle("dark", darkMode);
@@ -35,6 +72,51 @@ export default function DashboardShell({ products, orders, totals }: { products:
   function toggleSidebar() {
     setSidebarHidden((s) => !s);
   }
+
+  const summaryCards = [
+    {
+      title: "สินค้าในระบบ",
+      value: totals.products ?? 0,
+      detail: "รายการสินค้า",
+      icon: "bx bxs-package",
+      accent: "green",
+    },
+    {
+      title: "สินค้าคงคลังต่ำ",
+      value: totals.lowStock ?? 0,
+      detail: "ต้องเติมสต็อก",
+      icon: "bx bxs-box",
+      accent: "amber",
+    },
+    {
+      title: "คำสั่งซื้อทั้งหมด",
+      value: totals.orders ?? 0,
+      detail: `${totals.deliveredOrders ?? 0} สำเร็จ`,
+      icon: "bx bxs-cart-alt",
+      accent: "blue",
+    },
+    {
+      title: "ลูกค้า",
+      value: totals.customers ?? 0,
+      detail: "ลูกค้าทั้งหมด",
+      icon: "bx bxs-user-detail",
+      accent: "purple",
+    },
+    {
+      title: "วัสดุ",
+      value: totals.materials ?? 0,
+      detail: "รายการวัสดุ",
+      icon: "bx bxs-wrench",
+      accent: "orange",
+    },
+    {
+      title: "รายได้รวม",
+      value: currencyFormatter.format(totals.totalRevenue ?? 0),
+      detail: "จากคำสั่งซื้อ",
+      icon: "bx bxs-wallet",
+      accent: "teal",
+    },
+  ];
 
   return (
     <div className="dashboard-shell">
@@ -135,70 +217,158 @@ export default function DashboardShell({ products, orders, totals }: { products:
 
           {selected === "dashboard" && (
             <>
+              <section className="dashboard-hero">
+                <div>
+                  <p className="dashboard-eyebrow">ERP Operations Overview</p>
+                  <h2>ภาพรวมธุรกิจของคุณในมุมมองที่สวยและเข้าใจง่าย</h2>
+                  <p>ติดตามสถานะสินค้า ลูกค้า ออเดอร์ วัสดุ และเครื่องจักรแบบครบถ้วนจากข้อมูลระบบจริง</p>
+                </div>
+                <div className="dashboard-hero-badge">
+                  <span className="chip chip-success">{totals.pendingOrders ?? 0} คำสั่งซื้อรอการยืนยัน</span>
+                  <span className="chip">{totals.confirmedOrders ?? 0} อยู่ระหว่างดำเนินการ</span>
+                </div>
+              </section>
+
+              <div className="dashboard-top-tabs" role="tablist" aria-label="Dashboard summary view">
+                <button
+                  type="button"
+                  className={`dashboard-tab ${reportView === "graph" ? "active" : ""}`}
+                  onClick={() => setReportView("graph")}
+                >
+                  กราฟสรุป
+                </button>
+                <button
+                  type="button"
+                  className={`dashboard-tab ${reportView === "numbers" ? "active" : ""}`}
+                  onClick={() => setReportView("numbers")}
+                >
+                  ตัวเลขปกติ
+                </button>
+              </div>
+
               <ul className="box-info">
-                <li>
-                  <i className='bx bxs-package'></i>
-                  <span className="text">
-                    <h3>{totals.products ?? 0}</h3>
-                    <p>จำนวนสินค้า</p>
-                  </span>
-                </li>
-                <li>
-                  <i className='bx bxs-box'></i>
-                  <span className="text">
-                    <h3>{totals.lowStock ?? 0}</h3>
-                    <p>สินค้าคงคลังต่ำ</p>
-                  </span>
-                </li>
-                <li>
-                  <i className='bx bxs-time-five'></i>
-                  <span className="text">
-                    <h3>{totals.pendingOrders ?? 0}</h3>
-                    <p>คำสั่งซื้อค้าง</p>
-                  </span>
-                </li>
+                {summaryCards.map((card) => (
+                  <li key={card.title} className={`summary-card ${card.accent}`}>
+                    <i className={card.icon}></i>
+                    <span className="text">
+                      <h3>{card.value}</h3>
+                      <p>{card.title}</p>
+                      <small>{card.detail}</small>
+                    </span>
+                  </li>
+                ))}
               </ul>
 
-              <div className="table-data">
-                <div className="order">
-                  <div className="head">
-                    <h3>คำสั่งซื้อล่าสุด</h3>
-                    <i className='bx bx-search'></i>
-                    <i className='bx bx-filter'></i>
+              <div className="dashboard-grid">
+                <div className="dashboard-section-card wide">
+                  <div className="section-header">
+                    <div>
+                      <h3>คำสั่งซื้อล่าสุด</h3>
+                      <p>ภาพรวมออเดอร์ที่เพิ่งเข้ามาในระบบ</p>
+                    </div>
+                    <span className="chip chip-success">{totals.deliveredOrders ?? 0} ส่งสำเร็จ</span>
                   </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>ผู้ใช้</th>
-                        <th>วันที่สั่ง</th>
-                        <th>สถานะ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.map((order) => (
-                        <tr key={order.id}>
-                          <td>
-                            <img src="https://placehold.co/600x400/png" alt="" />
-                            <p>{order.customer?.name ?? "ลูกค้า"}</p>
-                          </td>
-                          <td>{new Date(order.createdAt || order.updatedAt || Date.now()).toLocaleDateString()}</td>
-                          <td>
-                            <span className={`status ${order.status === "DELIVERED" ? "completed" : order.status === "PENDING" ? "pending" : "process"}`}>
-                              {order.status ?? "PENDING"}
-                            </span>
-                          </td>
+                  <div className="table-responsive">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ลูกค้า</th>
+                          <th>วันที่สั่ง</th>
+                          <th>ยอดรวม</th>
+                          <th>สถานะ</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="todo">
-                  <div className="head">
-                    <h3>รายงานการเพิ่มสินค้า</h3>
+                      </thead>
+                      <tbody>
+                        {orders.map((order) => (
+                          <tr key={order.id}>
+                            <td>
+                              <div className="customer-cell">
+                                <div className="avatar">{(order.customer?.name ?? "C").slice(0, 1)}</div>
+                                <div>
+                                  <strong>{order.customer?.name ?? "ลูกค้า"}</strong>
+                                  <div className="sub-text">{order.items?.length ? `${order.items.length} รายการ` : "-"}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>{new Date(order.createdAt || order.updatedAt || Date.now()).toLocaleDateString("th-TH")}</td>
+                            <td>{currencyFormatter.format(order.total ?? 0)}</td>
+                            <td>
+                              <span className={`status ${order.status === "DELIVERED" ? "completed" : order.status === "PENDING" ? "pending" : "process"}`}>
+                                {order.status ?? "PENDING"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <ReportChart />
+                </div>
+
+                <div className="dashboard-section-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>สินค้าคงคลังต่ำ</h3>
+                      <p>รายการที่ควรเติมสต็อก</p>
+                    </div>
+                  </div>
+                  <ul className="dashboard-list">
+                    {lowStockProducts.map((item) => (
+                      <li key={item.id}>
+                        <div>
+                          <strong>{item.name}</strong>
+                          <div className="sub-text">{item.sku} • {item.warehouse?.name ?? "-"}</div>
+                        </div>
+                        <span className="pill">{item.stock} ชิ้น</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
+
+              <div className="dashboard-grid secondary-grid">
+                <div className="dashboard-section-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>รับวัสดุล่าสุด</h3>
+                      <p>รายการรับเข้าวัสดุที่เพิ่งอัปเดต</p>
+                    </div>
+                  </div>
+                  <ul className="dashboard-list">
+                    {recentMaterials.map((item) => (
+                      <li key={item.id}>
+                        <div>
+                          <strong>{item.material?.name ?? "วัสดุ"}</strong>
+                          <div className="sub-text">{item.supplier} • {item.lotNumber}</div>
+                        </div>
+                        <span className="pill">{item.quantity} {item.unit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="dashboard-section-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>เครื่องจักรในระบบ</h3>
+                      <p>ข้อมูลเครื่องจักรที่มีอยู่ในโรงงาน</p>
+                    </div>
+                    <span className="chip">{totals.machines ?? 0} เครื่อง</span>
+                  </div>
+                  <ul className="dashboard-list">
+                    {recentMachines.map((machine) => (
+                      <li key={machine.id}>
+                        <div>
+                          <strong>{machine.name}</strong>
+                          <div className="sub-text">{machine.code} • {machine.description ?? "พร้อมใช้งาน"}</div>
+                        </div>
+                        <span className="pill">พร้อม</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <DashboardCharts timeRange={timeRange} />
             </>
           )}
 

@@ -26,6 +26,29 @@ type CustomerForm = {
   image: string | null;
 };
 
+type ManHourJob = {
+  id: string;
+  name: string;
+  orderNumber: string;
+  ownerRole: string;
+  targetHours: number;
+  status: "active" | "done";
+  createdAt: string;
+};
+
+type ManHourLog = {
+  id: string;
+  customerId: string;
+  jobId: string;
+  date: string;
+  checkIn: string;
+  checkOut: string;
+  regularHours: number;
+  overtimeHours: number;
+  note: string;
+  createdAt: string;
+};
+
 const customerRoleOptions = [
   { value: "EMPLOYEE", label: "พนักงาน" },
   { value: "MANAGER", label: "ผู้จัดการ" },
@@ -34,6 +57,42 @@ const customerRoleOptions = [
 
 function getCustomerRoleLabel(role?: string | null) {
   return customerRoleOptions.find((option) => option.value === role)?.label ?? role ?? "-";
+}
+
+function calcWorkHours(checkIn: string, checkOut: string) {
+  const [inHour, inMinute] = checkIn.split(":").map(Number);
+  const [outHour, outMinute] = checkOut.split(":").map(Number);
+  const start = inHour * 60 + inMinute;
+  const end = outHour * 60 + outMinute;
+  const grossMinutes = Math.max(0, end - start);
+  const breaks = [
+    { start: 10 * 60, end: 10 * 60 + 10 },
+    { start: 12 * 60, end: 13 * 60 },
+    { start: 15 * 60, end: 15 * 60 + 10 },
+  ];
+  const breakMinutes = breaks.reduce((sum, br) => {
+    const overlap = Math.max(0, Math.min(end, br.end) - Math.max(start, br.start));
+    return sum + overlap;
+  }, 0);
+  const workMinutes = Math.max(0, grossMinutes - breakMinutes);
+  const totalHours = Math.round((workMinutes / 60) * 10) / 10;
+  const regularHours = Math.min(8, totalHours);
+  const overtimeHours = Math.max(0, Math.round((totalHours - regularHours) * 10) / 10);
+  return { regularHours, overtimeHours, totalHours, breakMinutes };
+}
+
+function readLocalArray<T>(key: string, fallback: T[]): T[] {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalArray<T>(key: string, data: T[]) {
+  window.localStorage.setItem(key, JSON.stringify(data));
 }
 
 function CustomerAvatar({
@@ -152,12 +211,518 @@ function DeleteConfirmModal({
   );
 }
 
+// ─── Man Hour Panel ────────────────────────────────────────────────────────────
+
+function ManHourPanel({ customers }: { customers: Customer[] }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [jobs, setJobs] = useState<ManHourJob[]>([]);
+  const [logs, setLogs] = useState<ManHourLog[]>([]);
+  const [jobForm, setJobForm] = useState({
+    name: "",
+    orderNumber: "",
+    ownerRole: "EMPLOYEE",
+    targetHours: 40,
+  });
+  const [logForm, setLogForm] = useState({
+    customerId: "",
+    jobId: "",
+    date: today,
+    checkIn: "08:00",
+    checkOut: "17:00",
+    note: "",
+  });
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    setJobs(readLocalArray<ManHourJob>("customer_manhour_jobs", []));
+    setLogs(readLocalArray<ManHourLog>("customer_manhour_logs", []));
+  }, []);
+
+  const activeMembers = customers.filter((customer) => customer.role !== "INACTIVE");
+  const activeJobs = jobs.filter((job) => job.status === "active");
+  const logPreview = calcWorkHours(logForm.checkIn, logForm.checkOut);
+  const selectedMember = activeMembers.find((member) => member.id === logForm.customerId);
+
+  const logsWithMeta = logs
+    .map((log) => ({
+      ...log,
+      customer: customers.find((customer) => customer.id === log.customerId),
+      job: jobs.find((job) => job.id === log.jobId),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+
+  const totalHours = logs.reduce((sum, log) => sum + log.regularHours + log.overtimeHours, 0);
+  const todayHours = logs
+    .filter((log) => log.date === today)
+    .reduce((sum, log) => sum + log.regularHours + log.overtimeHours, 0);
+  const overtimeHours = logs.reduce((sum, log) => sum + log.overtimeHours, 0);
+
+  const hoursByMember = activeMembers
+    .map((member) => {
+      const memberLogs = logs.filter((log) => log.customerId === member.id);
+      const hours = memberLogs.reduce((sum, log) => sum + log.regularHours + log.overtimeHours, 0);
+      const ot = memberLogs.reduce((sum, log) => sum + log.overtimeHours, 0);
+      return { member, hours: Math.round(hours * 10) / 10, ot: Math.round(ot * 10) / 10 };
+    })
+    .filter((item) => item.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+
+  const memberHoursMap = new Map(hoursByMember.map((item) => [item.member.id, item]));
+  const filteredMembers = activeMembers.filter((member) => {
+    const keyword = memberSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return (
+      member.name.toLowerCase().includes(keyword) ||
+      member.email.toLowerCase().includes(keyword) ||
+      getCustomerRoleLabel(member.role).toLowerCase().includes(keyword)
+    );
+  });
+
+  function saveJobs(nextJobs: ManHourJob[]) {
+    setJobs(nextJobs);
+    writeLocalArray("customer_manhour_jobs", nextJobs);
+  }
+
+  function saveLogs(nextLogs: ManHourLog[]) {
+    setLogs(nextLogs);
+    writeLocalArray("customer_manhour_logs", nextLogs);
+  }
+
+  function addJob(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!jobForm.name.trim()) return;
+    const nextJob: ManHourJob = {
+      id: `MHJ${Date.now()}`,
+      name: jobForm.name.trim(),
+      orderNumber: jobForm.orderNumber.trim(),
+      ownerRole: jobForm.ownerRole,
+      targetHours: Math.max(1, Number(jobForm.targetHours) || 1),
+      status: "active",
+      createdAt: today,
+    };
+    saveJobs([nextJob, ...jobs]);
+    setJobForm({ name: "", orderNumber: "", ownerRole: "EMPLOYEE", targetHours: 40 });
+  }
+
+  function addLog(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!logForm.customerId || !logForm.jobId) return;
+    const hours = calcWorkHours(logForm.checkIn, logForm.checkOut);
+    const nextLog: ManHourLog = {
+      id: `MHL${Date.now()}`,
+      ...logForm,
+      regularHours: hours.regularHours,
+      overtimeHours: hours.overtimeHours,
+      note: logForm.note.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    saveLogs([nextLog, ...logs]);
+    setLogForm({ customerId: "", jobId: "", date: today, checkIn: "08:00", checkOut: "17:00", note: "" });
+  }
+
+  function closeJob(id: string) {
+    saveJobs(jobs.map((job) => job.id === id ? { ...job, status: "done" } : job));
+  }
+
+  function deleteLog(id: string) {
+    saveLogs(logs.filter((log) => log.id !== id));
+  }
+
+  return (
+    <div>
+      <ul className="box-info" style={{ marginTop: 0, marginBottom: 24 }}>
+        <li>
+          <i className="bx bxs-user-check"></i>
+          <span className="text"><h3>{activeMembers.length}</h3><p>สมาชิกที่ใช้บันทึกเวลา</p></span>
+        </li>
+        <li>
+          <i className="bx bxs-time-five"></i>
+          <span className="text"><h3>{Math.round(todayHours * 10) / 10}</h3><p>ชั่วโมงวันนี้</p></span>
+        </li>
+        <li>
+          <i className="bx bxs-briefcase"></i>
+          <span className="text"><h3>{activeJobs.length}</h3><p>งานที่กำลังทำ</p></span>
+        </li>
+        <li>
+          <i className="bx bxs-bar-chart-alt-2" style={{ background: "#E8F1FF", color: "#2563eb" }}></i>
+          <span className="text"><h3>{Math.round(totalHours * 10) / 10}</h3><p>ชั่วโมงรวมทั้งหมด</p></span>
+        </li>
+      </ul>
+
+      <div className="form-grid" style={{ gridTemplateColumns: "minmax(340px, 460px) minmax(0, 1fr)", alignItems: "start" }}>
+        <div className="card form-card" style={{ background: "linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%)", border: "1px solid #e4efe8" }}>
+          <div className="section-header">
+            <div>
+              <h3>บันทึกเวลา</h3>
+              <p className="sub-text" style={{ marginTop: 4 }}>ค้นหาสมาชิกจาก dropdown แล้วกรอกงานกับช่วงเวลา</p>
+            </div>
+          </div>
+          <form onSubmit={addLog}>
+            <div className="field-group">
+              <label>สมาชิก</label>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMemberDropdownOpen((open) => !open);
+                    setMemberSearch("");
+                  }}
+                  style={{
+                    width: "100%",
+                    minHeight: 54,
+                    padding: "8px 12px",
+                    borderRadius: 16,
+                    border: memberDropdownOpen ? "2px solid var(--green)" : "1px solid #e6e9f0",
+                    background: "white",
+                    color: "var(--dark)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {selectedMember ? (
+                    <>
+                      <CustomerAvatar customer={selectedMember} size={38} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedMember.name}</span>
+                        <span className="sub-text">{getCustomerRoleLabel(selectedMember.role)} · {selectedMember.email}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ color: "#718096", flex: 1 }}>เลือกหรือค้นหาสมาชิก</span>
+                  )}
+                  {selectedMember && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="ยกเลิกสมาชิกที่เลือก"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setLogForm({ ...logForm, customerId: "" });
+                        setMemberSearch("");
+                        setMemberDropdownOpen(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setLogForm({ ...logForm, customerId: "" });
+                          setMemberSearch("");
+                          setMemberDropdownOpen(false);
+                        }
+                      }}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        background: "#f1f5f9",
+                        color: "#718096",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <i className="bx bx-x" style={{ fontSize: 18 }} />
+                    </span>
+                  )}
+                  <i className={`bx ${memberDropdownOpen ? "bx-chevron-up" : "bx-chevron-down"}`} style={{ fontSize: 22, color: "#718096" }} />
+                </button>
+
+                {memberDropdownOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      left: 0,
+                      right: 0,
+                      zIndex: 30,
+                      background: "white",
+                      border: "1px solid #e6e9f0",
+                      borderRadius: 18,
+                      boxShadow: "0 18px 50px rgba(15,23,42,.16)",
+                      padding: 10,
+                    }}
+                  >
+                    <div style={{ position: "relative", marginBottom: 8 }}>
+                      <i className="bx bx-search" style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "#718096", fontSize: 18 }} />
+                      <input
+                        autoFocus
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        placeholder="ค้นหาชื่อ, อีเมล หรือ Role"
+                        style={{ paddingLeft: 38 }}
+                      />
+                    </div>
+                    <div style={{ maxHeight: 280, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {filteredMembers.length === 0 && (
+                        <div style={{ padding: 18, color: "#718096", textAlign: "center" }}>
+                          ไม่พบสมาชิกที่ค้นหา
+                        </div>
+                      )}
+                      {filteredMembers.map((member) => {
+                        const isSelected = member.id === logForm.customerId;
+                        const memberStats = memberHoursMap.get(member.id);
+                        return (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => {
+                              setLogForm({ ...logForm, customerId: member.id });
+                              setMemberSearch("");
+                              setMemberDropdownOpen(false);
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              width: "100%",
+                              padding: 10,
+                              borderRadius: 14,
+                              border: "none",
+                              background: isSelected ? "#edf8f1" : "transparent",
+                              color: "var(--dark)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <CustomerAvatar customer={member} size={40} />
+                            <span style={{ minWidth: 0, flex: 1 }}>
+                              <span style={{ display: "block", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{member.name}</span>
+                              <span style={{ display: "block", color: "#718096", fontSize: 12, marginTop: 2 }}>{getCustomerRoleLabel(member.role)} · {member.email}</span>
+                              <span style={{ display: "block", color: isSelected ? "#225d3d" : "#a0aec0", fontSize: 11, marginTop: 3 }}>
+                                {memberStats ? `${memberStats.hours} ชม. · OT ${memberStats.ot}` : "ยังไม่มีบันทึก"}
+                              </span>
+                            </span>
+                            {isSelected && <i className="bx bxs-check-circle" style={{ color: "var(--green)", fontSize: 20, flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {selectedMember && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, borderRadius: 18, background: "#edf8f1", border: "1px solid #c8eedd", marginBottom: 16 }}>
+                <CustomerAvatar customer={selectedMember} size={52} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{selectedMember.name}</div>
+                  <div className="sub-text">{selectedMember.email}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="field-group">
+              <label>งาน / ออเดอร์</label>
+              <select value={logForm.jobId} onChange={(e) => setLogForm({ ...logForm, jobId: e.target.value })}>
+                <option value="">เลือกงาน</option>
+                {activeJobs.map((job) => (
+                  <option key={job.id} value={job.id}>{job.name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field-group">
+                <label>วันที่</label>
+                <input type="date" value={logForm.date} onChange={(e) => setLogForm({ ...logForm, date: e.target.value })} />
+              </div>
+              <div className="field-group">
+                <label>หมายเหตุ</label>
+                <input value={logForm.note} onChange={(e) => setLogForm({ ...logForm, note: e.target.value })} placeholder="เพิ่มเติม" />
+              </div>
+              <div className="field-group">
+                <label>เวลาเข้า</label>
+                <input type="time" value={logForm.checkIn} onChange={(e) => setLogForm({ ...logForm, checkIn: e.target.value })} />
+              </div>
+              <div className="field-group">
+                <label>เวลาออก</label>
+                <input type="time" value={logForm.checkOut} onChange={(e) => setLogForm({ ...logForm, checkOut: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
+              <div style={{ padding: 12, borderRadius: 16, background: "white", border: "1px solid #e6e9f0" }}>
+                <div className="sub-text">รวม</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--dark)" }}>{logPreview.totalHours}</div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 16, background: "white", border: "1px solid #e6e9f0" }}>
+                <div className="sub-text">ปกติ</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--green)" }}>{logPreview.regularHours}</div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 16, background: "white", border: "1px solid #e6e9f0" }}>
+                <div className="sub-text">OT</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#FD7238" }}>{logPreview.overtimeHours}</div>
+              </div>
+            </div>
+            <button className="btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>+ เพิ่มบันทึกเวลา</button>
+          </form>
+        </div>
+
+        <div>
+          <div className="card" style={{ marginBottom: 18, background: "#fff" }}>
+            <div className="section-header">
+              <div>
+                <h3>เพิ่มงาน</h3>
+                <p className="sub-text" style={{ marginTop: 4 }}>สร้างงานก่อน แล้วนำไปเลือกตอนบันทึกเวลา</p>
+              </div>
+            </div>
+            <form onSubmit={addJob} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "end" }}>
+              <div className="field-group" style={{ marginBottom: 0 }}>
+                <label>ชื่องาน</label>
+                <input value={jobForm.name} onChange={(e) => setJobForm({ ...jobForm, name: e.target.value })} placeholder="เช่น ผลิต Tray รุ่น A" />
+              </div>
+              <div className="field-group" style={{ marginBottom: 0 }}>
+                <label>เลขออเดอร์</label>
+                <input value={jobForm.orderNumber} onChange={(e) => setJobForm({ ...jobForm, orderNumber: e.target.value })} placeholder="ORD-001" />
+              </div>
+              <div className="field-group" style={{ marginBottom: 0 }}>
+                <label>กลุ่มงาน</label>
+                <select value={jobForm.ownerRole} onChange={(e) => setJobForm({ ...jobForm, ownerRole: e.target.value })}>
+                  {customerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div className="field-group" style={{ marginBottom: 0 }}>
+                <label>เป้าหมาย</label>
+                <input type="number" min={1} value={jobForm.targetHours} onChange={(e) => setJobForm({ ...jobForm, targetHours: Number(e.target.value) })} />
+              </div>
+              <button className="btn" type="submit" style={{ minHeight: 45 }}>เพิ่มงาน</button>
+            </form>
+          </div>
+
+          <div className="card" style={{ marginBottom: 18, background: "#fff" }}>
+            <div className="section-header"><h3>สรุปรายสมาชิก</h3><span className="sub-text">OT รวม {Math.round(overtimeHours * 10) / 10} ชม.</span></div>
+            {hoursByMember.length === 0 ? (
+              <div className="text-center" style={{ padding: 24, color: "#888" }}>ยังไม่มีข้อมูลชั่วโมงทำงาน</div>
+            ) : (
+              <div className="table-responsive">
+                <table>
+                  <thead><tr><th>สมาชิก</th><th>Role</th><th>ชั่วโมงรวม</th><th>OT</th></tr></thead>
+                  <tbody>
+                    {hoursByMember.map(({ member, hours, ot }) => (
+                      <tr key={member.id}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <CustomerAvatar customer={member} size={38} />
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{member.name}</div>
+                              <div className="sub-text">{member.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>{getCustomerRoleLabel(member.role)}</td>
+                        <td><strong>{hours}</strong> ชม.</td>
+                        <td><span style={{ color: ot > 0 ? "#FD7238" : "#718096", fontWeight: 700 }}>{ot}</span> ชม.</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ background: "#fff" }}>
+            <div className="section-header"><h3>งานทั้งหมด ({jobs.length})</h3></div>
+            <div className="table-responsive">
+              <table>
+                <thead><tr><th>งาน</th><th>ออเดอร์</th><th>เป้าหมาย</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+                <tbody>
+                  {jobs.length === 0 && <tr><td colSpan={5} className="text-center">ยังไม่มีงาน</td></tr>}
+                  {jobs.map((job) => (
+                    <tr key={job.id}>
+                      <td>{job.name}</td>
+                      <td>{job.orderNumber || "-"}</td>
+                      <td>{job.targetHours} ชม.</td>
+                      <td>
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "6px 12px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          background: job.status === "done" ? "#EDF8F1" : "#FFF2C6",
+                          color: job.status === "done" ? "#225D3D" : "#8A5B00",
+                        }}>
+                          {job.status === "done" ? "เสร็จแล้ว" : "กำลังทำ"}
+                        </span>
+                      </td>
+                      <td>{job.status === "active" && <button className="btn btn-small" type="button" onClick={() => closeJob(job.id)}>ปิดงาน</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 18, background: "#fff" }}>
+        <div className="section-header">
+          <div>
+            <h3>บันทึกล่าสุด</h3>
+            <p className="sub-text" style={{ marginTop: 4 }}>ประวัติการลงเวลาของสมาชิกทั้งหมด</p>
+          </div>
+        </div>
+        <div className="table-responsive">
+          <table>
+            <thead><tr><th>วันที่</th><th>สมาชิก</th><th>งาน</th><th>เข้า</th><th>ออก</th><th>ชั่วโมง</th><th>OT</th><th>จัดการ</th></tr></thead>
+            <tbody>
+              {logsWithMeta.length === 0 && <tr><td colSpan={8} className="text-center">ยังไม่มีบันทึกเวลา</td></tr>}
+              {logsWithMeta.map((log) => (
+                <tr key={log.id}>
+                  <td>{log.date}</td>
+                  <td>
+                    {log.customer ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <CustomerAvatar customer={log.customer} size={38} />
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{log.customer.name}</div>
+                          <div className="sub-text">{getCustomerRoleLabel(log.customer.role)}</div>
+                        </div>
+                      </div>
+                    ) : "ไม่พบสมาชิก"}
+                  </td>
+                  <td>{log.job?.name ?? "ไม่พบงาน"}</td>
+                  <td>{log.checkIn}</td>
+                  <td>{log.checkOut}</td>
+                  <td><strong>{Math.round((log.regularHours + log.overtimeHours) * 10) / 10}</strong> ชม.</td>
+                  <td>
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "5px 10px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: log.overtimeHours > 0 ? "#FFE0D3" : "#f1f5f9",
+                      color: log.overtimeHours > 0 ? "#B64A17" : "#718096",
+                    }}>
+                      {log.overtimeHours > 0 ? `${log.overtimeHours} ชม.` : "ไม่มี OT"}
+                    </span>
+                  </td>
+                  <td><button className="btn btn-small btn-danger" type="button" onClick={() => deleteLog(log.id)}>ลบ</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CustomerView ─────────────────────────────────────────────────────────────
 
 export function CustomerView() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"members" | "manhour">("members");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -533,8 +1098,25 @@ export function CustomerView() {
       <div className="module-header">
         <div>
           <h2>สมาชิก</h2>
-          <p>จัดการข้อมูลลูกค้าและสมาชิกทั้งหมด</p>
+          <p>จัดการข้อมูลสมาชิกและบันทึกชั่วโมงทำงานในหน้าเดียว</p>
         </div>
+      </div>
+
+      <div className="module-tabs">
+        <button
+          type="button"
+          className={`tab${activeTab === "members" ? " active" : ""}`}
+          onClick={() => setActiveTab("members")}
+        >
+          สมาชิกทั้งหมด
+        </button>
+        <button
+          type="button"
+          className={`tab${activeTab === "manhour" ? " active" : ""}`}
+          onClick={() => setActiveTab("manhour")}
+        >
+          Man Hour
+        </button>
       </div>
 
       {/* Messages */}
@@ -542,7 +1124,7 @@ export function CustomerView() {
       {error && <div className="alert">{error}</div>}
 
       {/* Table card */}
-      <div className="card">
+      {activeTab === "members" ? <div className="card">
         <div className="section-header">
           <h3>สมาชิกทั้งหมด ({filteredCustomers.length} ราย)</h3>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -635,7 +1217,7 @@ export function CustomerView() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div> : <ManHourPanel customers={customers} />}
     </section>
   );
 }
