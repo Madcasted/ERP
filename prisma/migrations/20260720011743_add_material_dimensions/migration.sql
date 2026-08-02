@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Material" ADD COLUMN     "height" DOUBLE PRECISION,
+ADD COLUMN     "thickness" DOUBLE PRECISION,
+ADD COLUMN     "width" DOUBLE PRECISION;
