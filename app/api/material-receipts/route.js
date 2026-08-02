@@ -20,7 +20,10 @@ function mapRoll(roll, index) {
 export async function GET() {
   const receipts = await prisma.materialReceipt.findMany({
     orderBy: { updatedAt: "desc" },
-    include: { rolls: { orderBy: { rollNo: "asc" } } },
+    include: {
+      rolls: { orderBy: { rollNo: "asc" } },
+      material: { select: { id: true, name: true, unit: true, unitPrice: true } }, // ← เพิ่ม เพื่อให้ frontend รู้ว่าลิงก์กับ catalog ตัวไหน
+    },
   });
   return NextResponse.json(receipts);
 }
@@ -30,14 +33,22 @@ export async function POST(request) {
   const rolls = Array.isArray(body.rolls) ? body.rolls : [];
   const receipt = await prisma.materialReceipt.create({
     data: {
+      materialId: body.materialId || null, // ← เพิ่ม: ผูกกับ Material catalog ถ้ามีการเลือก
       materialName: body.materialName || "",
       receivedDate: body.receivedDate || null,
       supplier: body.supplier || null,
       supplierNote: body.supplierNote || null,
       invoiceNo: body.invoiceNo || null,
+      unitPrice: Number(body.unitPrice) || 0,
+      width: body.width ? Number(body.width) : null,
+      height: body.height ? Number(body.height) : null,
+      thickness: body.thickness ? Number(body.thickness) : null,
       rolls: { create: rolls.map(mapRoll) },
     },
-    include: { rolls: { orderBy: { rollNo: "asc" } } },
+    include: {
+      rolls: { orderBy: { rollNo: "asc" } },
+      material: { select: { id: true, name: true, unit: true, unitPrice: true } },
+    },
   });
   return NextResponse.json(receipt, { status: 201 });
 }

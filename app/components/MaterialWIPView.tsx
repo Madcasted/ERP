@@ -19,13 +19,29 @@ type RollData = {
   packQty: string;
 };
 
+type MaterialOption = {
+  id: string;
+  name: string;
+  unit: string | null;
+  unitPrice: number;
+  width?: number | null;
+  height?: number | null;
+  thickness?: number | null;
+};
+
 type ReceiptData = {
   id: string;
+  materialId?: string | null;
   materialName: string;
+  material?: { id: string; name: string; unit: string | null; unitPrice: number } | null;
   receivedDate?: string | null;
   supplier?: string | null;
   supplierNote?: string | null;
   invoiceNo?: string | null;
+  unitPrice?: number;
+  width?: number | null;
+  height?: number | null;
+  thickness?: number | null;
   rolls: RollData[];
   createdAt?: string;
   updatedAt?: string;
@@ -33,11 +49,16 @@ type ReceiptData = {
 
 type ReceiptForm = {
   id?: string;
+  materialId: string;
   materialName: string;
   receivedDate: string;
   supplier: string;
   supplierNote: string;
   invoiceNo: string;
+  unitPrice: string;
+  width: string;
+  height: string;
+  thickness: string;
   rolls: RollData[];
 };
 
@@ -50,17 +71,42 @@ function emptyRoll(rollNo: number): RollData {
 }
 
 function emptyForm(): ReceiptForm {
-  return { materialName: "", receivedDate: "", supplier: "", supplierNote: "", invoiceNo: "", rolls: [emptyRoll(1)] };
+  return { materialId: "", materialName: "", receivedDate: "", supplier: "", supplierNote: "", invoiceNo: "", unitPrice: "", width: "", height: "", thickness: "", rolls: [emptyRoll(1)] };
 }
 
 function totalWeight(rolls: RollData[]): number {
   return rolls.reduce((sum, r) => sum + (Number(r.weightKg) || 0), 0);
 }
 
+function totalDefectQty(rolls: RollData[]): number {
+  return rolls.reduce((sum, r) => sum + (Number(r.defectQty) || 0), 0);
+}
+
+function totalGoodQty(rolls: RollData[]): number {
+  return rolls.reduce((sum, r) => sum + (Number(r.goodQty) || 0), 0);
+}
+
+function parseUnitPrice(value: string | number | undefined): number {
+  return Number(value) || 0;
+}
+
+function costPerJob(rolls: RollData[], unitPrice: number): number {
+  if (!rolls.length || !unitPrice) return 0;
+  return totalWeight(rolls) * unitPrice / rolls.length;
+}
+
+function damageCost(rolls: RollData[], unitPrice: number): number {
+  const totalQty = totalGoodQty(rolls) + totalDefectQty(rolls);
+  if (!totalQty || !unitPrice) return 0;
+  const defectRatio = totalDefectQty(rolls) / totalQty;
+  return totalWeight(rolls) * unitPrice * defectRatio;
+}
+
 // ─── Component ───────────────────────────────────────────────────────
 
 export function MaterialWIPView() {
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
+  const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([]);
   const [form, setForm] = useState<ReceiptForm>(emptyForm);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -69,7 +115,7 @@ export function MaterialWIPView() {
   const [printReceipt, setPrintReceipt] = useState<ReceiptData | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { fetchReceipts(); }, []);
+  useEffect(() => { fetchReceipts(); fetchMaterialOptions(); }, []);
 
   async function fetchReceipts() {
     setLoading(true);
@@ -79,6 +125,14 @@ export function MaterialWIPView() {
       setReceipts(data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  }
+
+  async function fetchMaterialOptions() {
+    try {
+      const res = await fetch("/api/materials");
+      const data = await res.json();
+      setMaterialOptions(Array.isArray(data) ? data : []);
+    } catch (e) { console.error(e); }
   }
 
   function flash(text: string) {
@@ -95,11 +149,16 @@ export function MaterialWIPView() {
     setEditing(true);
     setForm({
       id: receipt.id,
+      materialId: receipt.materialId || receipt.material?.id || "",
       materialName: receipt.materialName || "",
       receivedDate: receipt.receivedDate || "",
       supplier: receipt.supplier || "",
       supplierNote: receipt.supplierNote || "",
       invoiceNo: receipt.invoiceNo || "",
+      unitPrice: receipt.unitPrice?.toString() || "",
+      width: receipt.width?.toString() || "",
+      height: receipt.height?.toString() || "",
+      thickness: receipt.thickness?.toString() || "",
       rolls: receipt.rolls.length > 0
         ? receipt.rolls.map((r, i) => ({
             id: r.id, rollNo: r.rollNo ?? i + 1, weightKg: r.weightKg ?? "",
@@ -115,8 +174,27 @@ export function MaterialWIPView() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function updateField(field: keyof Omit<ReceiptForm, "rolls" | "id">, value: string) {
+  function updateField(field: keyof Omit<ReceiptForm, "rolls" | "id" | "materialId">, value: string) {
     setForm(f => ({ ...f, [field]: value }));
+  }
+
+  // ── เลือกวัสดุจาก Catalog: auto-fill ชื่อ/ขนาด/ราคา ──
+  function handleMaterialSelect(materialId: string) {
+    if (!materialId) {
+      setForm(f => ({ ...f, materialId: "" }));
+      return;
+    }
+    const mat = materialOptions.find(m => m.id === materialId);
+    if (!mat) return;
+    setForm(f => ({
+      ...f,
+      materialId: mat.id,
+      materialName: mat.name,
+      width: mat.width != null ? String(mat.width) : f.width,
+      height: mat.height != null ? String(mat.height) : f.height,
+      thickness: mat.thickness != null ? String(mat.thickness) : f.thickness,
+      unitPrice: mat.unitPrice != null ? String(mat.unitPrice) : f.unitPrice,
+    }));
   }
 
   function updateRoll(index: number, field: keyof RollData, value: string) {
@@ -138,7 +216,8 @@ export function MaterialWIPView() {
     e.preventDefault();
     const method = editing ? "PUT" : "POST";
     const url = editing && form.id ? `/api/material-receipts/${form.id}` : "/api/material-receipts";
-    const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const payload = { ...form, materialId: form.materialId || null };
+    const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (res.ok) {
       await fetchReceipts();
       flash(editing ? "แก้ไขใบรับวัสดุสำเร็จ" : "เพิ่มใบรับวัสดุสำเร็จ");
@@ -197,9 +276,40 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
           <form onSubmit={handleSubmit}>
             {/* Header fields */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>เลือกวัสดุจาก Catalog (ถ้ามี)</label>
+                <select
+                  value={form.materialId}
+                  onChange={e => handleMaterialSelect(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6, background: "white" }}
+                >
+                  <option value="">- ไม่ผูกกับ Catalog / พิมพ์ชื่อเอง -</option>
+                  {materialOptions.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}{m.unit ? ` (${m.unit})` : ""} — ฿{m.unitPrice.toLocaleString("th-TH")}</option>
+                  ))}
+                </select>
+                {materialOptions.length === 0 && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>ยังไม่มีวัสดุใน Catalog — เพิ่มได้ที่แท็บ "รายการวัสดุ (Catalog)"</div>
+                )}
+              </div>
               <div>
-                <label style={{ fontWeight: 600, fontSize: 13 }}>ชื่อวัสดุ / Material</label>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>
+                  ชื่อวัสดุ / Material
+                  {form.materialId && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#16a34a" }}>✓ เชื่อมกับ Catalog</span>}
+                </label>
                 <input value={form.materialName} onChange={e => updateField("materialName", e.target.value)} required style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น PP Sheet T: 0.9x440mm สีธรรมชาติ" />
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>ความกว้าง</label>
+                <input type="number" min="0" step="0.01" value={form.width} onChange={e => updateField("width", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น 100" />
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>ความสูง</label>
+                <input type="number" min="0" step="0.01" value={form.height} onChange={e => updateField("height", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น 50" />
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>ความหนา</label>
+                <input type="number" min="0" step="0.01" value={form.thickness} onChange={e => updateField("thickness", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น 1.2" />
               </div>
               <div>
                 <label style={{ fontWeight: 600, fontSize: 13 }}>วันที่รับเข้าคลัง</label>
@@ -216,6 +326,10 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
               <div>
                 <label style={{ fontWeight: 600, fontSize: 13 }}>Invoice No.</label>
                 <input value={form.invoiceNo} onChange={e => updateField("invoiceNo", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น IV68030071" />
+              </div>
+              <div>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>ราคาต่อ Kg (฿)</label>
+                <input type="number" min="0" step="0.01" value={form.unitPrice} onChange={e => updateField("unitPrice", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 6 }} placeholder="เช่น 42.50" />
               </div>
             </div>
 
@@ -274,6 +388,22 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
               </table>
             </div>
 
+            {/* Cost summary */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
+              <div style={{ padding: 12, borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>วัสดุใช้ไป</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{(totalWeight(form.rolls) * parseUnitPrice(form.unitPrice)).toLocaleString("th-TH", { style: "currency", currency: "THB" })}</div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>1 งานใช้งบ</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{costPerJob(form.rolls, parseUnitPrice(form.unitPrice)).toLocaleString("th-TH", { style: "currency", currency: "THB" })}</div>
+              </div>
+              <div style={{ padding: 12, borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>เสียหาย</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{damageCost(form.rolls, parseUnitPrice(form.unitPrice)).toLocaleString("th-TH", { style: "currency", currency: "THB" })}</div>
+              </div>
+            </div>
+
             {/* Actions */}
             <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
               <button type="submit" style={{ padding: "10px 20px", background: "#2563eb", color: "white", border: "none", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}>{editing ? "บันทึกการแก้ไข" : "บันทึกใบรับวัสดุ"}</button>
@@ -300,6 +430,7 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
               <thead>
                 <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
                   <th style={{ padding: "10px 8px", textAlign: "left" }}>ชื่อวัสดุ</th>
+                  <th style={{ padding: "10px 8px", textAlign: "center" }}>Catalog</th>
                   <th style={{ padding: "10px 8px", textAlign: "left" }}>Supplier</th>
                   <th style={{ padding: "10px 8px", textAlign: "left" }}>Invoice No.</th>
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>วันที่รับ</th>
@@ -312,6 +443,13 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
                 {receipts.map(receipt => (
                   <tr key={receipt.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
                     <td style={{ padding: "10px 8px", fontWeight: 600 }}>{receipt.materialName}</td>
+                    <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                      {receipt.materialId || receipt.material ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", background: "#f0fdf4", padding: "2px 8px", borderRadius: 12, border: "1px solid #bbf7d0" }}>✓ เชื่อม</span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: "#9ca3af" }}>-</span>
+                      )}
+                    </td>
                     <td style={{ padding: "10px 8px" }}>{receipt.supplier || "-"}</td>
                     <td style={{ padding: "10px 8px" }}>{receipt.invoiceNo || "-"}</td>
                     <td style={{ padding: "10px 8px", textAlign: "center" }}>{receipt.receivedDate || "-"}</td>
@@ -358,7 +496,10 @@ function WIPPrintSheet({ receipt }: { receipt: ReceiptData }) {
         <div>Supplier : {receipt.supplier || "___________"} {receipt.supplierNote || ""}</div>
         <div>Invoice No. : {receipt.invoiceNo || "___________"}</div>
       </div>
-
+      <div className="wip-meta">
+        <div>ราคาต่อ Kg : {receipt.unitPrice ? receipt.unitPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" }) : "___________"}</div>
+        <div>ราคาเสียหาย : {damageCost(receipt.rolls, receipt.unitPrice || 0).toLocaleString("th-TH", { style: "currency", currency: "THB" })}</div>
+      </div>
       <table className="wip-table">
         <thead>
           <tr>

@@ -11,11 +11,11 @@ model User {
   id        String   @id @default(uuid())
   email     String   @unique
   name      String
+  password  String   // เพิ่มบรรทัดนี้
   role      UserRole @default(EMPLOYEE)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
 model Customer {
   id        String   @id @default(uuid())
   name      String
@@ -85,10 +85,14 @@ model Material {
   invoiceNo        String?
   productCode      String?
   weight           Float?
+  width            Float?
+  height           Float?
+  thickness        Float?
   receivingDate    DateTime?
   lotNumber        String?
   productMaterials ProductMaterial[]
   receivingLots    MaterialReceiving[]
+  materialReceipts MaterialReceipt[]
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 }
@@ -148,11 +152,17 @@ model OrderItem {
 
 model MaterialReceipt {
   id           String         @id @default(uuid())
+  material     Material?      @relation(fields: [materialId], references: [id])
+  materialId   String?
   materialName String
   receivedDate String?
   supplier     String?
   supplierNote String?
   invoiceNo    String?
+  unitPrice    Float?         @default(0)
+  width        Float?
+  height       Float?
+  thickness    Float?
   rolls        MaterialRoll[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -221,7 +231,6 @@ model MachineLog {
   operator2     String?
   returnedBy    String?
   returnedQty   Int?
-  // Timer settings (seconds)
   timerPrintDown    Float?
   timerPrintUp      Float?
   timerPrintTop     Float?
@@ -236,12 +245,10 @@ model MachineLog {
   timerOpenHeat     Float?
   timerHeat         Float?
   timerOpenShield   Float?
-  // Other settings
   unrollSpeed   Float?
   runSpeed      Float?
   runLength     Float?
   programNo     Int?
-  // Heat settings (rows x ovens)
   heat          Json?
   recordedBy    String?
   recordedAt    DateTime?

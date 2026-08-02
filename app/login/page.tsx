@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useRef, MouseEvent } from "react";
+import { useState, useRef, MouseEvent, FormEvent, ChangeEvent } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 // ─── MaterialInput Component ──────────────────────────────────────────────────
 
@@ -8,13 +10,14 @@ interface MaterialInputProps {
   type: "text" | "email" | "password";
   label: string;
   id: string;
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
 }
 
-function MaterialInput({ type, label, id }: MaterialInputProps) {
+function MaterialInput({ type, label, id, value, onChange }: MaterialInputProps) {
   const [focused, setFocused] = useState(false);
-  const [used, setUsed] = useState(false);
 
-  const isActive = focused || used;
+  const isActive = focused || value.length > 0;
 
   return (
     <div style={styles.group}>
@@ -22,11 +25,10 @@ function MaterialInput({ type, label, id }: MaterialInputProps) {
         id={id}
         type={type}
         style={styles.input}
+        value={value}
+        onChange={onChange}
         onFocus={() => setFocused(true)}
-        onBlur={(e) => {
-          setFocused(false);
-          setUsed(e.target.value.length > 0);
-        }}
+        onBlur={() => setFocused(false)}
       />
       <span
         style={{
@@ -64,6 +66,11 @@ function MaterialInput({ type, label, id }: MaterialInputProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ERPLoginForm() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [ripplePos, setRipplePos] = useState({ x: 0, y: 0 });
   const [rippleActive, setRippleActive] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -82,6 +89,34 @@ export default function ERPLoginForm() {
 
   function handleAnimationEnd() {
     setRippleActive(false);
+  }
+
+  async function handleLogin(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || "เข้าสู่ระบบล้มเหลว");
+        setLoading(false);
+        return;
+      }
+
+      // Login success - redirect to dashboard
+      router.push("/");
+    } catch (err) {
+      setError("เกิดข้อผิดพลาด กรุณาลองใหม่");
+      setLoading(false);
+    }
   }
 
   return (
@@ -103,6 +138,7 @@ export default function ERPLoginForm() {
           100% { width: 220%; padding-bottom: 220%; opacity: 0; }
         }
         .erp-btn:hover { background: #388e3c !important; }
+        .erp-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         footer a { color: #2e7d32; text-decoration: none; transition: all .2s ease; }
         footer a:hover { text-decoration: underline; }
         footer img:hover { opacity: 1 !important; }
@@ -118,18 +154,44 @@ export default function ERPLoginForm() {
         </hgroup>
 
         {/* Card */}
-        <div style={styles.card}>
-          <MaterialInput id="inp-email" type="email" label="อีเมล" />
-          <MaterialInput id="inp-pass" type="password" label="รหัสผ่าน" />
+        <form style={styles.card} onSubmit={handleLogin}>
+          <div style={styles.logoContainer}>
+            <Image
+              src="/logo.png"
+              alt="Logo"
+              width={80}
+              height={80}
+              className="brand-logo"
+              priority
+            />
+          </div>
+
+          <MaterialInput
+            id="inp-email"
+            type="email"
+            label="อีเมล"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <MaterialInput
+            id="inp-pass"
+            type="password"
+            label="รหัสผ่าน"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          {error && <p style={styles.errorMsg}>{error}</p>}
 
           {/* Button */}
           <button
             ref={btnRef}
-            type="button"
+            type="submit"
             className="erp-btn"
             style={styles.btn}
+            disabled={loading}
           >
-            เข้าสู่ระบบ
+            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
             <div style={styles.rippleWrap} onClick={handleRipple}>
               <span
                 style={{
@@ -146,32 +208,10 @@ export default function ERPLoginForm() {
           </button>
 
           <p style={styles.note}>ทดลองใช้ได้ทันทีโดยกรอกข้อมูลใดก็ได้</p>
-        </div>
+        </form>
 
         {/* Footer */}
-        <footer style={styles.footer}>
-          <a
-            href="http://www.polymer-project.org/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://www.polymer-project.org/images/logos/p-logo.svg"
-              alt="Polymer"
-              style={styles.footerImg}
-            />
-          </a>
-          <p style={styles.footerP}>
-            You Gotta Love{" "}
-            <a
-              href="http://www.polymer-project.org/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Google
-            </a>
-          </p>
-        </footer>
+  
       </div>
     </>
   );
@@ -222,6 +262,13 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "2.5rem 2rem 2rem",
     boxShadow:
       "rgba(0,0,0,0.12) 0px 1px 3px 0px, rgba(0,0,0,0.08) 0px 1px 2px 0px",
+  },
+
+  // logo
+  logoContainer: {
+    display: "flex",
+    justifyContent: "center",
+    marginBottom: "1.5rem",
   },
 
   // input group
@@ -339,6 +386,14 @@ const styles: Record<string, React.CSSProperties> = {
     height: 0,
     borderRadius: "50%",
     background: "rgba(255,255,255,0.28)",
+  },
+
+  // error
+  errorMsg: {
+    color: "#d32f2f",
+    fontSize: 14,
+    marginBottom: "1rem",
+    textAlign: "center",
   },
 
   // note

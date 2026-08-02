@@ -108,6 +108,9 @@ type Material = {
   invoiceNo?: string | null;
   productCode?: string | null;
   weight?: number | null;
+  width?: number | null;
+  height?: number | null;
+  thickness?: number | null;
   receivingDate?: string | null;
   lotNumber?: string | null;
   receivingLots?: MaterialReceiving[];
@@ -180,6 +183,9 @@ type MaterialForm = {
   invoiceNo?: string;
   productCode?: string;
   weight?: number;
+  width?: number;
+  height?: number;
+  thickness?: number;
   lotNumber?: string;
   receivingDate?: string;
 };
@@ -1577,6 +1583,7 @@ export function InventoryView() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"products" | "materials" | "warehouses">("products");
+  const [materialSubTab, setMaterialSubTab] = useState<"catalog" | "wip">("catalog");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setProducts(cachedProducts); }, [cachedProducts]);
@@ -1616,6 +1623,9 @@ export function InventoryView() {
     invoiceNo: "",
     productCode: "",
     weight: 0,
+    width: 0,
+    height: 0,
+    thickness: 0,
     lotNumber: "",
     receivingDate: new Date().toISOString().split('T')[0]
   });
@@ -1649,12 +1659,27 @@ export function InventoryView() {
     setDeleteConfirm({ show: true, message, onConfirm: action });
   }
 
-  function openProductEdit(product: Product) {
+  async function loadMaterialsOptions() {
+    try {
+      const res = await fetch("/api/materials");
+      if (!res.ok) return [];
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setMaterials(list);
+      return list;
+    } catch (error) {
+      console.error("Failed to load materials for product modal", error);
+      return [];
+    }
+  }
+
+  async function openProductEdit(product: Product) {
     const fallbackDate = new Date().toLocaleDateString("th-TH");
     const savedLots = Array.isArray(product.labelLots) && product.labelLots.length > 0
       ? product.labelLots
       : [{ id: "lot-1", lot: product.labelLot || "", qty: product.labelQty ?? product.stock, date: product.labelDate || fallbackDate }];
 
+    const materialList = await loadMaterialsOptions();
     setSelectedProduct(product);
     setProductForm({
       id: product.id,
@@ -1691,11 +1716,12 @@ export function InventoryView() {
     setShowProductEditModal(true);
   }
 
-  function openProductAdd() {
+  async function openProductAdd() {
     setSelectedProduct(null);
     setProductForm(defaultProductForm);
     setSelectedProductMaterials([]);
     setProductModalTab("info");
+    await loadMaterialsOptions();
     setShowProductEditModal(true);
   }
 
@@ -1792,6 +1818,9 @@ export function InventoryView() {
       invoiceNo: material.invoiceNo || "",
       productCode: material.productCode || "",
       weight: material.weight || 0,
+      width: material.width || 0,
+      height: material.height || 0,
+      thickness: material.thickness || 0,
       lotNumber: material.lotNumber || "",
       receivingDate: material.receivingDate ? new Date(material.receivingDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
     });
@@ -1809,6 +1838,9 @@ export function InventoryView() {
       invoiceNo: "",
       productCode: "",
       weight: 0,
+      width: 0,
+      height: 0,
+      thickness: 0,
       lotNumber: "",
       receivingDate: new Date().toISOString().split('T')[0]
     });
@@ -1830,6 +1862,9 @@ export function InventoryView() {
         invoiceNo: materialForm.invoiceNo || "",
         productCode: materialForm.productCode || "",
         weight: materialForm.weight || 0,
+        width: materialForm.width || 0,
+        height: materialForm.height || 0,
+        thickness: materialForm.thickness || 0,
         lotNumber: materialForm.lotNumber || "",
         receivingDate: materialForm.receivingDate ? new Date(materialForm.receivingDate).toISOString() : null
       };
@@ -2148,10 +2183,21 @@ export function InventoryView() {
                   {productForm.type === "COMPOSITE" && (
                     <div className="field-group" style={{ gridColumn: isMobile ? "1" : "1 / -1" }}>
                       <label>วัสดุที่ใช้</label>
-                      <select onChange={(e) => { addMaterialToProduct(e.target.value); e.target.value = ""; }} defaultValue="">
+                      <select
+                        onChange={(e) => { addMaterialToProduct(e.target.value); e.target.value = ""; }}
+                        defaultValue=""
+                        style={{ width: "100%" }}
+                      >
                         <option value="">- เลือกวัสดุ -</option>
-                        {materials.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.unit}) - {m.unitPrice} บาท</option>)}
+                        {materials.length > 0 ? (
+                          materials.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.unit || "-"}) - {m.unitPrice.toLocaleString("th-TH")} บาท</option>)
+                        ) : (
+                          <option value="" disabled>ไม่มีวัสดุในฐานข้อมูล</option>
+                        )}
                       </select>
+                      {materials.length === 0 && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>เพิ่มวัสดุในหน้า “วัสดุ” ก่อนเพื่อให้รายการปรากฏที่นี่</div>
+                      )}
                       {selectedProductMaterials.length > 0 && (
                         <div style={{ marginTop: 10, padding: 10, background: "#f5f5f5", borderRadius: 4 }}>
                           {selectedProductMaterials.map((pm) => {
@@ -2584,9 +2630,14 @@ export function InventoryView() {
               <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: "2px solid #e5e7eb" }}>
                 <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 14, fontWeight: 700, color: "#1a2e1c" }}>ข้อมูลวัสดุ</h3>
                 <div className="field-group"><label>ชื่อวัสดุ *</label><input value={materialForm.name} onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })} placeholder="เช่น เหล็กสแตนเลส, พลาสติก PET" required /></div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                   <div className="field-group"><label>หน่วย</label><input value={materialForm.unit} onChange={(e) => setMaterialForm({ ...materialForm, unit: e.target.value })} placeholder="เช่น กก., ม., ชิ้น" /></div>
                   <div className="field-group"><label>ราคาต่อหน่วย (฿) *</label><input type="number" min="0" step="0.01" value={materialForm.unitPrice} onChange={(e) => setMaterialForm({ ...materialForm, unitPrice: Number(e.target.value) })} required /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 12, marginTop: 8 }}>
+                  <div className="field-group"><label>ความกว้าง</label><input type="number" min="0" step="0.01" value={materialForm.width ?? 0} onChange={(e) => setMaterialForm({ ...materialForm, width: Number(e.target.value) })} placeholder="เช่น 100" /></div>
+                  <div className="field-group"><label>ความสูง</label><input type="number" min="0" step="0.01" value={materialForm.height ?? 0} onChange={(e) => setMaterialForm({ ...materialForm, height: Number(e.target.value) })} placeholder="เช่น 50" /></div>
+                  <div className="field-group"><label>ความหนา</label><input type="number" min="0" step="0.01" value={materialForm.thickness ?? 0} onChange={(e) => setMaterialForm({ ...materialForm, thickness: Number(e.target.value) })} placeholder="เช่น 1.2" /></div>
                 </div>
               </div>
 
@@ -2638,9 +2689,21 @@ export function InventoryView() {
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>หน่วย</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e1c" }}>{selectedMaterial.unit || "-"}</div>
               </div>
-              <div style={{ gridColumn: "1 / -1" }}>
+              <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>ราคาต่อหน่วย</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>฿ {selectedMaterial.unitPrice.toLocaleString("th-TH")}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>ความกว้าง</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e1c" }}>{selectedMaterial.width != null ? `${selectedMaterial.width} mm` : "-"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>ความสูง</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e1c" }}>{selectedMaterial.height != null ? `${selectedMaterial.height} mm` : "-"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>ความหนา</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a2e1c" }}>{selectedMaterial.thickness != null ? `${selectedMaterial.thickness} mm` : "-"}</div>
               </div>
             </div>
 
@@ -2950,9 +3013,68 @@ export function InventoryView() {
         </div>
       )}
 
-      {activeTab === "materials" && (
-        <MaterialWIPView />
-      )}
+{activeTab === "materials" && (
+  <>
+    <div className="module-tabs" style={{ marginBottom: 18 }}>
+      <button type="button" className={materialSubTab === "catalog" ? "tab active" : "tab"} onClick={() => setMaterialSubTab("catalog")}>
+        📋 รายการวัสดุ (Catalog)
+      </button>
+      <button type="button" className={materialSubTab === "wip" ? "tab active" : "tab"} onClick={() => setMaterialSubTab("wip")}>
+        📦 ใบรับวัสดุ (WIP)
+      </button>
+    </div>
+
+    {materialSubTab === "catalog" && (
+      <div className="card">
+        <div className="section-header" style={{ flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center", gap: isMobile ? 12 : 0 }}>
+          <h3>วัสดุทั้งหมด</h3>
+          <button type="button" className="btn" onClick={openMaterialAdd}>+ เพิ่มวัสดุ</button>
+        </div>
+        {isMobile ? (
+          <div style={{ padding: "4px 0" }}>
+            {loading && <div style={{ textAlign: "center", padding: 24, color: "#888" }}>กำลังโหลดข้อมูล...</div>}
+            {!loading && materials.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#888" }}>ยังไม่มีวัสดุในระบบ</div>}
+            {!loading && materials.map(renderMaterialCard)}
+          </div>
+        ) : (
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>ชื่อวัสดุ</th>
+                  <th>หน่วย</th>
+                  <th>ราคา/หน่วย</th>
+                  <th>Supplier</th>
+                  <th>Lot</th>
+                  <th>จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && <tr><td colSpan={6} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
+                {!loading && materials.length === 0 && <tr><td colSpan={6} className="text-center">ยังไม่มีวัสดุในระบบ</td></tr>}
+                {!loading && materials.map((material) => (
+                  <tr key={material.id} style={{ cursor: "pointer" }} onClick={() => { setSelectedMaterial(material); setShowMaterialDetailModal(true); }}>
+                    <td>{material.name}</td>
+                    <td>{material.unit || "-"}</td>
+                    <td>{material.unitPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" })}</td>
+                    <td>{material.supplier || "-"}</td>
+                    <td>{material.lotNumber || "-"}</td>
+                    <td className="table-actions" onClick={(e) => e.stopPropagation()}>
+                      <button className="btn btn-small" type="button" onClick={() => openMaterialEdit(material)}>แก้ไข</button>
+                      <button className="btn btn-small btn-danger" type="button" onClick={() => handleMaterialDelete(material.id, material.name)}>ลบ</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+
+    {materialSubTab === "wip" && <MaterialWIPView />}
+  </>
+)}
 
       {activeTab === "warehouses" && (
         <div className="card">

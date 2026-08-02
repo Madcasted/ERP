@@ -1,41 +1,64 @@
 import { prisma } from "@/lib/prisma";
 import DashboardShell from "./components/DashboardShell";
 
+function receiptCost(receipt: { unitPrice: number | null; rolls: { weightKg: number }[] }) {
+  const weight = receipt.rolls.reduce((sum, r) => sum + (r.weightKg || 0), 0);
+  return weight * (receipt.unitPrice || 0);
+}
+
 async function getDashboardData() {
-  const [productCount, lowStockCount, customerCount, materialCount, machineCount, orderCount, pendingOrders, confirmedOrders, deliveredOrders, revenue, recentProducts, recentOrders, recentMaterials, lowStockProducts, recentMachines] = await Promise.all([
+  const [
+    productCount,
+    lowStockCount,
+    customerCount,
+    materialCount,
+    machineCount,
+    recentProducts,
+    recentReceipts,
+    lowStockProducts,
+    recentMachines,
+    allReceiptsForCost,
+  ] = await Promise.all([
     prisma.product.count(),
     prisma.product.count({ where: { stock: { lte: 5 } } }),
     prisma.customer.count(),
     prisma.material.count(),
     prisma.machine.count(),
-    prisma.order.count(),
-    prisma.order.count({ where: { status: "PENDING" } }),
-    prisma.order.count({ where: { status: "CONFIRMED" } }),
-    prisma.order.count({ where: { status: "DELIVERED" } }),
-    prisma.order.aggregate({ _sum: { total: true } }),
     prisma.product.findMany({ orderBy: { updatedAt: "desc" }, take: 5 }),
-    prisma.order.findMany({ orderBy: { updatedAt: "desc" }, take: 6, include: { customer: true, items: { include: { product: true } } } }),
-    prisma.materialReceiving.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { material: true } }),
+    prisma.materialReceipt.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: { material: true, rolls: { select: { lotNo: true } } },
+    }),
     prisma.product.findMany({ where: { stock: { lte: 5 } }, orderBy: { stock: "asc" }, take: 5, include: { warehouse: true } }),
     prisma.machine.findMany({ orderBy: { updatedAt: "desc" }, take: 5 }),
+    prisma.materialReceipt.findMany({ include: { rolls: { select: { weightKg: true } } } }),
   ]);
+
+  const totalMaterialCost = allReceiptsForCost.reduce((sum, r) => sum + receiptCost(r), 0);
 
   const totals = {
     products: productCount,
     lowStock: lowStockCount,
-    pendingOrders,
-    confirmedOrders,
-    deliveredOrders,
     customers: customerCount,
     materials: materialCount,
     machines: machineCount,
-    orders: orderCount,
-    totalRevenue: revenue._sum.total ?? 0,
+    totalMaterialCost: Math.round(totalMaterialCost),
   };
+
+  // แนบ lotNumber (จากม้วนแรกของใบรับ) ให้ตรงกับที่ DashboardShell ใช้แสดงผล
+  const recentMaterials = recentReceipts.map((r) => ({
+    id: r.id,
+    materialName: r.materialName,
+    material: r.material,
+    supplier: r.supplier,
+    invoiceNo: r.invoiceNo,
+    lotNumber: r.rolls[0]?.lotNo ?? "-",
+    createdAt: r.createdAt,
+  }));
 
   return {
     products: recentProducts,
-    orders: recentOrders,
     totals,
     recentMaterials,
     lowStockProducts,
@@ -44,12 +67,11 @@ async function getDashboardData() {
 }
 
 export default async function HomePage() {
-  const { products, orders, totals, recentMaterials, lowStockProducts, recentMachines } = await getDashboardData();
+  const { products, totals, recentMaterials, lowStockProducts, recentMachines } = await getDashboardData();
 
   return (
     <DashboardShell
       products={products}
-      orders={orders}
       totals={totals}
       recentMaterials={recentMaterials}
       lowStockProducts={lowStockProducts}

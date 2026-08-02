@@ -6,150 +6,124 @@ export async function GET(request) {
   const range = searchParams.get("range") || "month"; // month | quarter | year
 
   const now = new Date();
+
+  // ── สร้างช่วง bucket ──
+  // month   -> รายวัน ของเดือนนี้ (วันที่ 1 ถึงวันนี้)
+  // quarter -> รายเดือน ของไตรมาสนี้
+  // year    -> รายเดือน ของปีนี้ (ม.ค. ถึงเดือนปัจจุบัน)
+  const MONTH_LABELS_TH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+  let buckets = [];
   let startDate;
 
   if (range === "month") {
     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const daysSoFar = now.getDate();
+    for (let day = 1; day <= daysSoFar; day++) {
+      buckets.push({
+        label: `${day}`,
+        start: new Date(now.getFullYear(), now.getMonth(), day),
+        end: new Date(now.getFullYear(), now.getMonth(), day + 1),
+      });
+    }
   } else if (range === "quarter") {
-    const qStart = Math.floor(now.getMonth() / 3) * 3;
-    startDate = new Date(now.getFullYear(), qStart, 1);
+    const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    startDate = new Date(now.getFullYear(), qStartMonth, 1);
+    for (let m = qStartMonth; m <= now.getMonth(); m++) {
+      const s = new Date(now.getFullYear(), m, 1);
+      const e = new Date(now.getFullYear(), m + 1, 1);
+      buckets.push({ label: MONTH_LABELS_TH[m], start: s, end: e });
+    }
   } else {
     startDate = new Date(now.getFullYear(), 0, 1);
+    for (let m = 0; m <= now.getMonth(); m++) {
+      const s = new Date(now.getFullYear(), m, 1);
+      const e = new Date(now.getFullYear(), m + 1, 1);
+      buckets.push({ label: MONTH_LABELS_TH[m], start: s, end: e });
+    }
   }
 
-  // ---- Revenue by period (monthly buckets within the range) ----
-  const orders = await prisma.order.findMany({
-    where: {
-      createdAt: { gte: startDate },
-      status: "DELIVERED",
-    },
-    select: { createdAt: true, total: true },
+  function inBucket(date, bucket) {
+    const d = new Date(date);
+    return d >= bucket.start && d < bucket.end;
+  }
+
+  // ── ใบรับวัสดุ (WIP) ในช่วงที่เลือก — ใช้คำนวณค่าใช้จ่ายวัสดุจริง ──
+  const receipts = await prisma.materialReceipt.findMany({
+    where: { createdAt: { gte: startDate } },
+    include: { rolls: { select: { weightKg: true } } },
   });
 
-  // Products created in period
+  function receiptCost(receipt) {
+    const weight = receipt.rolls.reduce((sum, r) => sum + (r.weightKg || 0), 0);
+    return weight * (receipt.unitPrice || 0);
+  }
+
+  const materialCostByMonth = buckets.map((b) => ({
+    label: b.label,
+    value: Math.round(
+      receipts.filter((r) => inBucket(r.createdAt, b)).reduce((sum, r) => sum + receiptCost(r), 0)
+    ),
+  }));
+
+  // ── สินค้า / ลูกค้า / จำนวนใบรับวัสดุ ที่เพิ่มขึ้นในช่วงเวลา (growth) ──
   const products = await prisma.product.findMany({
     where: { createdAt: { gte: startDate } },
     select: { createdAt: true },
   });
-
-  // Customers created in period
   const customers = await prisma.customer.findMany({
     where: { createdAt: { gte: startDate } },
     select: { createdAt: true },
   });
 
-  // Materials received in period
-  const materialReceivings = await prisma.materialReceiving.findMany({
-    where: { createdAt: { gte: startDate } },
-    select: { createdAt: true, quantity: true },
-  });
-
-  // Machine logs in period
-  const machineLogs = await prisma.machineLog.findMany({
-    where: { createdAt: { gte: startDate } },
-    select: { createdAt: true, goodPcs: true, defectPcs: true },
-  });
-
-  // Orders by status in period
-  const allOrdersInPeriod = await prisma.order.findMany({
-    where: { createdAt: { gte: startDate } },
-    select: { status: true, total: true, createdAt: true },
-  });
-
-  // ---- Bucket helpers ----
-  const periodMonths = [];
-  let cursor = new Date(startDate);
-  while (cursor <= now) {
-    periodMonths.push({
-      year: cursor.getFullYear(),
-      month: cursor.getMonth(),
-      label: `${cursor.getMonth() + 1}/${cursor.getFullYear().toString().slice(-2)}`,
-    });
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
-  function inBucket(date, bucket) {
-    const d = new Date(date);
-    return d.getFullYear() === bucket.year && d.getMonth() === bucket.month;
-  }
-
-  const revenueByMonth = periodMonths.map((b) => ({
-    label: b.label,
-    value: orders
-      .filter((o) => inBucket(o.createdAt, b))
-      .reduce((sum, o) => sum + (o.total || 0), 0),
-  }));
-
-  const productsByMonth = periodMonths.map((b) => ({
+  const productsByMonth = buckets.map((b) => ({
     label: b.label,
     value: products.filter((p) => inBucket(p.createdAt, b)).length,
   }));
-
-  const customersByMonth = periodMonths.map((b) => ({
+  const customersByMonth = buckets.map((b) => ({
     label: b.label,
     value: customers.filter((c) => inBucket(c.createdAt, b)).length,
   }));
-
-  const materialsByMonth = periodMonths.map((b) => ({
+  const materialsByMonth = buckets.map((b) => ({
     label: b.label,
-    value: materialReceivings.filter((m) => inBucket(m.createdAt, b)).length,
+    value: receipts.filter((r) => inBucket(r.createdAt, b)).length,
   }));
 
-  // Order status breakdown this period
-  const orderStatusCounts = {
-    PENDING: allOrdersInPeriod.filter((o) => o.status === "PENDING").length,
-    CONFIRMED: allOrdersInPeriod.filter((o) => o.status === "CONFIRMED").length,
-    DELIVERED: allOrdersInPeriod.filter((o) => o.status === "DELIVERED").length,
-    CANCELLED: allOrdersInPeriod.filter((o) => o.status === "CANCELLED").length,
-  };
-
-  const orderStatusRevenue = {
-    PENDING: allOrdersInPeriod
-      .filter((o) => o.status === "PENDING")
-      .reduce((s, o) => s + (o.total || 0), 0),
-    CONFIRMED: allOrdersInPeriod
-      .filter((o) => o.status === "CONFIRMED")
-      .reduce((s, o) => s + (o.total || 0), 0),
-    DELIVERED: allOrdersInPeriod
-      .filter((o) => o.status === "DELIVERED")
-      .reduce((s, o) => s + (o.total || 0), 0),
-    CANCELLED: allOrdersInPeriod
-      .filter((o) => o.status === "CANCELLED")
-      .reduce((s, o) => s + (o.total || 0), 0),
-  };
-
-  // Production stats from machine logs
+  // ── คุณภาพการผลิตจากเครื่องจักร ในช่วงเวลาเดียวกัน ──
+  const machineLogs = await prisma.machineLog.findMany({
+    where: { createdAt: { gte: startDate } },
+    select: { goodPcs: true, defectPcs: true },
+  });
   const totalGoodPcs = machineLogs.reduce((s, l) => s + (l.goodPcs || 0), 0);
   const totalDefectPcs = machineLogs.reduce((s, l) => s + (l.defectPcs || 0), 0);
 
-  // Summary for numbers view
+  // ── ยอดรวมทั้งระบบ (ไม่จำกัดช่วงเวลา) สำหรับ KPI สรุป ──
+  const [totalProductsAll, totalCustomersAll, totalMachinesAll, allReceipts] = await Promise.all([
+    prisma.product.count(),
+    prisma.customer.count(),
+    prisma.machine.count(),
+    prisma.materialReceipt.findMany({ include: { rolls: { select: { weightKg: true } } } }),
+  ]);
+  const totalMaterialCostAll = allReceipts.reduce((s, r) => s + receiptCost(r), 0);
+
   const summary = {
-    totalRevenue: orders.reduce((s, o) => s + (o.total || 0), 0),
-    totalProducts: products.length,
-    totalCustomers: customers.length,
-    totalMaterials: materialReceivings.length,
-    totalOrders: allOrdersInPeriod.length,
-    pendingOrders: orderStatusCounts.PENDING,
-    confirmedOrders: orderStatusCounts.CONFIRMED,
-    deliveredOrders: orderStatusCounts.DELIVERED,
-    cancelledOrders: orderStatusCounts.CANCELLED,
+    periodMaterialCost: materialCostByMonth.reduce((s, b) => s + b.value, 0),
+    totalMaterialCostAll: Math.round(totalMaterialCostAll),
+    totalProducts: totalProductsAll,
+    totalCustomers: totalCustomersAll,
+    totalMachines: totalMachinesAll,
+    totalMaterialReceipts: allReceipts.length,
     totalGoodPcs,
     totalDefectPcs,
   };
 
   return NextResponse.json({
     range,
-    revenueByMonth,
+    materialCostByMonth,
     productsByMonth,
     customersByMonth,
     materialsByMonth,
-    orderStatusCounts,
-    orderStatusRevenue,
     summary,
-    period: {
-      start: startDate.toISOString(),
-      end: now.toISOString(),
-      months: periodMonths.length,
-    },
+    period: { start: startDate.toISOString(), end: now.toISOString(), points: buckets.length },
   });
 }

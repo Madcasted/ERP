@@ -1,18 +1,49 @@
 const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcryptjs");
 
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.user.createMany({
-    data: [
-      { email: "admin@erp.local", name: "Admin User", role: "ADMIN" },
-      { email: "manager@erp.local", name: "Manager User", role: "MANAGER" }
-    ],
-    skipDuplicates: true,
+  // เข้ารหัสรหัสผ่าน
+  const adminPassword = await bcrypt.hash("123456", 10);
+  const managerPassword = await bcrypt.hash("123456", 10);
+
+  // ===========================
+  // Users
+  // ===========================
+  await prisma.user.upsert({
+    where: {
+      email: "admin@erp.local",
+    },
+    update: {},
+    create: {
+      email: "admin@erp.local",
+      name: "Admin User",
+      password: adminPassword,
+      role: "ADMIN",
+    },
   });
 
+  await prisma.user.upsert({
+    where: {
+      email: "manager@erp.local",
+    },
+    update: {},
+    create: {
+      email: "manager@erp.local",
+      name: "Manager User",
+      password: managerPassword,
+      role: "MANAGER",
+    },
+  });
+
+  // ===========================
+  // Customer
+  // ===========================
   const customer = await prisma.customer.upsert({
-    where: { email: "customer@example.com" },
+    where: {
+      email: "customer@example.com",
+    },
     update: {},
     create: {
       name: "บริษัท ตัวอย่าง จำกัด",
@@ -22,20 +53,46 @@ async function main() {
       address: "กรุงเทพมหานคร",
     },
   });
+// ===========================
+// Warehouses
+// ===========================
 
-  const warehouse1 = await prisma.warehouse.upsert({
-    where: { name: "คลังหลัก" },
-    update: {},
-    create: { name: "คลังหลัก", location: "กรุงเทพมหานคร" },
-  });
-  const warehouse2 = await prisma.warehouse.upsert({
-    where: { name: "คลังสาขา" },
-    update: {},
-    create: { name: "คลังสาขา", location: "นนทบุรี" },
-  });
+let warehouse1 = await prisma.warehouse.findFirst({
+  where: {
+    name: "คลังหลัก",
+  },
+});
 
+if (!warehouse1) {
+  warehouse1 = await prisma.warehouse.create({
+    data: {
+      name: "คลังหลัก",
+      location: "กรุงเทพมหานคร",
+    },
+  });
+}
+
+let warehouse2 = await prisma.warehouse.findFirst({
+  where: {
+    name: "คลังสาขา",
+  },
+});
+
+if (!warehouse2) {
+  warehouse2 = await prisma.warehouse.create({
+    data: {
+      name: "คลังสาขา",
+      location: "นนทบุรี",
+    },
+  });
+}
+  // ===========================
+  // Products
+  // ===========================
   await prisma.product.upsert({
-    where: { sku: "ERP-PC-001" },
+    where: {
+      sku: "ERP-PC-001",
+    },
     update: {},
     create: {
       name: "คอมพิวเตอร์สำนักงาน",
@@ -49,7 +106,9 @@ async function main() {
   });
 
   await prisma.product.upsert({
-    where: { sku: "ERP-WIFI-002" },
+    where: {
+      sku: "ERP-WIFI-002",
+    },
     update: {},
     create: {
       name: "โมเด็มไวไฟ",
@@ -63,7 +122,9 @@ async function main() {
   });
 
   await prisma.product.upsert({
-    where: { sku: "ERP-MON-003" },
+    where: {
+      sku: "ERP-MON-003",
+    },
     update: {},
     create: {
       name: "จอภาพ 24 นิ้ว",
@@ -76,16 +137,39 @@ async function main() {
     },
   });
 
+  // ===========================
+  // Materials
+  // ===========================
   await prisma.material.createMany({
     data: [
-      { name: "เหล็กแผ่น", unit: "kg", unitPrice: 45 },
-      { name: "พลาสติก ABS", unit: "kg", unitPrice: 120 },
-      { name: "สกรู", unit: "pcs", unitPrice: 2 },
+      {
+        name: "เหล็กแผ่น",
+        unit: "kg",
+        unitPrice: 45,
+      },
+      {
+        name: "พลาสติก ABS",
+        unit: "kg",
+        unitPrice: 120,
+      },
+      {
+        name: "สกรู",
+        unit: "pcs",
+        unitPrice: 2,
+      },
     ],
     skipDuplicates: true,
   });
 
-  const product = await prisma.product.findUnique({ where: { sku: "ERP-PC-001" } });
+  // ===========================
+  // Sample Order
+  // ===========================
+  const product = await prisma.product.findUnique({
+    where: {
+      sku: "ERP-PC-001",
+    },
+  });
+
   if (product) {
     await prisma.order.create({
       data: {
@@ -93,11 +177,28 @@ async function main() {
         status: "CONFIRMED",
         total: product.price * 2,
         items: {
-          create: [{ productId: product.id, quantity: 2, price: product.price }],
+          create: [
+            {
+              productId: product.id,
+              quantity: 2,
+              price: product.price,
+            },
+          ],
         },
       },
     });
   }
+
+  console.log("================================");
+  console.log("Seed completed successfully");
+  console.log("================================");
+  console.log("Admin");
+  console.log("Email    : admin@erp.local");
+  console.log("Password : 123456");
+  console.log("");
+  console.log("Manager");
+  console.log("Email    : manager@erp.local");
+  console.log("Password : 123456");
 }
 
 main()
