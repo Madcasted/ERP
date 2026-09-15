@@ -43,8 +43,26 @@ type ReceiptData = {
   height?: number | null;
   thickness?: number | null;
   rolls: RollData[];
+  issues: MaterialIssue[];
   createdAt?: string;
   updatedAt?: string;
+};
+
+type MaterialIssue = {
+  id: string;
+  issueDate: string;
+  issuer: string;
+  rollCount: number;
+  weightKg: number;
+  purpose: string;
+};
+
+type IssueForm = {
+  issueDate: string;
+  issuer: string;
+  rollCount: string;
+  weightKg: string;
+  purpose: string;
 };
 
 type ReceiptForm = {
@@ -74,8 +92,20 @@ function emptyForm(): ReceiptForm {
   return { materialId: "", materialName: "", receivedDate: "", supplier: "", supplierNote: "", invoiceNo: "", unitPrice: "", width: "", height: "", thickness: "", rolls: [emptyRoll(1)] };
 }
 
+function emptyIssueForm(): IssueForm {
+  return { issueDate: new Date().toISOString().slice(0, 10), issuer: "", rollCount: "1", weightKg: "", purpose: "" };
+}
+
 function totalWeight(rolls: RollData[]): number {
   return rolls.reduce((sum, r) => sum + (Number(r.weightKg) || 0), 0);
+}
+
+function issuedRolls(issues: MaterialIssue[]): number {
+  return issues.reduce((sum, issue) => sum + issue.rollCount, 0);
+}
+
+function issuedWeight(issues: MaterialIssue[]): number {
+  return issues.reduce((sum, issue) => sum + (Number(issue.weightKg) || 0), 0);
 }
 
 function totalDefectQty(rolls: RollData[]): number {
@@ -113,6 +143,9 @@ export function MaterialWIPView() {
   const [message, setMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [printReceipt, setPrintReceipt] = useState<ReceiptData | null>(null);
+  const [issueReceipt, setIssueReceipt] = useState<ReceiptData | null>(null);
+  const [issueForm, setIssueForm] = useState<IssueForm>(emptyIssueForm);
+  const [issueLoading, setIssueLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchReceipts(); fetchMaterialOptions(); }, []);
@@ -231,6 +264,56 @@ export function MaterialWIPView() {
     if (res.ok) { setReceipts(r => r.filter(x => x.id !== id)); flash("ลบใบรับวัสดุเรียบร้อย"); }
   }
 
+  function openIssue(receipt: ReceiptData) {
+    setIssueReceipt(receipt);
+    setIssueForm(emptyIssueForm());
+  }
+
+  async function handleIssueSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!issueReceipt) return;
+    const remainingRolls = issueReceipt.rolls.length - issuedRolls(issueReceipt.issues);
+    const remainingWeight = totalWeight(issueReceipt.rolls) - issuedWeight(issueReceipt.issues);
+    const requestedRolls = Number(issueForm.rollCount);
+    const requestedWeight = Number(issueForm.weightKg);
+    if (!Number.isInteger(requestedRolls) || requestedRolls < 1 || requestedRolls > remainingRolls) {
+      flash(`จำนวนม้วนที่เบิกต้องอยู่ระหว่าง 1-${remainingRolls} ม้วน`);
+      return;
+    }
+    if (!Number.isFinite(requestedWeight) || (remainingWeight > 0 && requestedWeight <= 0) || requestedWeight > remainingWeight + 0.000001) {
+      flash(`น้ำหนักที่เบิกต้องไม่เกิน ${Math.max(0, remainingWeight).toFixed(2)} Kg`);
+      return;
+    }
+    setIssueLoading(true);
+    try {
+      const res = await fetch(`/api/material-receipts/${issueReceipt.id}/issues`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(issueForm),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        flash(data.error || "บันทึกการเบิกไม่สำเร็จ");
+        return;
+      }
+      await fetchReceipts();
+      setIssueReceipt(null);
+      flash("บันทึกการเบิกวัสดุสำเร็จ");
+    } finally {
+      setIssueLoading(false);
+    }
+  }
+
+  async function handleIssueDelete(receiptId: string, issueId: string) {
+    if (!confirm("ยืนยันลบรายการเบิกนี้?")) return;
+    const res = await fetch(`/api/material-receipts/${receiptId}/issues/${issueId}`, { method: "DELETE" });
+    if (res.ok) {
+      setIssueReceipt(current => current ? { ...current, issues: current.issues.filter(issue => issue.id !== issueId) } : current);
+      await fetchReceipts();
+      flash("ลบรายการเบิกเรียบร้อย");
+    }
+  }
+
   function handlePrint(receipt: ReceiptData) {
     setPrintReceipt(receipt);
     setTimeout(() => {
@@ -343,7 +426,7 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: "#f1f5f9" }}>
-                    <th style={{ padding: "8px 4px", border: "1px solid #e2e8f0", minWidth: 40 }}>มวนที่</th>
+                    <th style={{ padding: "8px 4px", border: "1px solid #e2e8f0", minWidth: 40 }}>ม้วนที่</th>
                     <th style={{ padding: "8px 4px", border: "1px solid #e2e8f0", minWidth: 70 }}>น้ำหนัก Kg</th>
                     <th style={{ padding: "8px 4px", border: "1px solid #e2e8f0", minWidth: 80 }}>วันที่เบิกผลิต</th>
                     <th style={{ padding: "8px 4px", border: "1px solid #e2e8f0", minWidth: 70 }}>ผู้เบิก</th>
@@ -436,6 +519,7 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>วันที่รับ</th>
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>จำนวนม้วน</th>
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>น้ำหนักรวม (Kg)</th>
+                  <th style={{ padding: "10px 8px", textAlign: "center" }}>เบิกไป (ม้วน)</th>
                   <th style={{ padding: "10px 8px", textAlign: "center" }}>จัดการ</th>
                 </tr>
               </thead>
@@ -455,7 +539,11 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
                     <td style={{ padding: "10px 8px", textAlign: "center" }}>{receipt.receivedDate || "-"}</td>
                     <td style={{ padding: "10px 8px", textAlign: "center" }}>{receipt.rolls.length}</td>
                     <td style={{ padding: "10px 8px", textAlign: "center" }}>{totalWeight(receipt.rolls).toFixed(2)}</td>
+                    <td style={{ padding: "10px 8px", textAlign: "center", fontWeight: 700, color: receipt.issues?.length ? "#b45309" : "#6b7280" }}>
+                      {issuedRolls(receipt.issues || [])} / {receipt.rolls.length}
+                    </td>
                     <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                      <button type="button" onClick={() => openIssue(receipt)} style={{ padding: "4px 10px", background: "#d97706", color: "white", border: "none", borderRadius: 4, fontSize: 11, marginRight: 4, cursor: "pointer" }}>เบิกวัสดุ</button>
                       <button type="button" onClick={() => openEdit(receipt)} style={{ padding: "4px 10px", background: "#3b82f6", color: "white", border: "none", borderRadius: 4, fontSize: 11, marginRight: 4, cursor: "pointer" }}>แก้ไข</button>
                       <button type="button" onClick={() => handlePrint(receipt)} style={{ padding: "4px 10px", background: "#8b5cf6", color: "white", border: "none", borderRadius: 4, fontSize: 11, marginRight: 4, cursor: "pointer" }}>พิมพ์</button>
                       <button type="button" onClick={() => handleDelete(receipt.id)} style={{ padding: "4px 10px", background: "#ef4444", color: "white", border: "none", borderRadius: 4, fontSize: 11, cursor: "pointer" }}>ลบ</button>
@@ -467,6 +555,34 @@ body { font-family: 'TH SarabunPSK', 'Sarabun', 'Tahoma', sans-serif; font-size:
           </div>
         )}
       </div>
+
+      {issueReceipt && (
+        <div className="card" style={{ padding: 20, marginTop: 20, border: "2px solid #f59e0b" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <h3 style={{ margin: 0 }}>เบิกวัสดุ: {issueReceipt.materialName}</h3>
+            <button type="button" onClick={() => setIssueReceipt(null)} style={{ padding: "4px 10px", background: "#6b7280", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}>ปิด</button>
+          </div>
+          <form onSubmit={handleIssueSubmit}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+              <label>วันที่เบิก<input type="date" required value={issueForm.issueDate} onChange={e => setIssueForm(f => ({ ...f, issueDate: e.target.value }))} style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6 }} /></label>
+              <label>ผู้เบิก<input required value={issueForm.issuer} onChange={e => setIssueForm(f => ({ ...f, issuer: e.target.value }))} style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6 }} /></label>
+              <label>จำนวนม้วนที่เบิก<input type="number" min="1" max={Math.max(0, issueReceipt.rolls.length - issuedRolls(issueReceipt.issues))} step="1" required value={issueForm.rollCount} onChange={e => setIssueForm(f => ({ ...f, rollCount: e.target.value }))} style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6 }} /><small style={{ color: "#92400e" }}>คงเหลือ {Math.max(0, issueReceipt.rolls.length - issuedRolls(issueReceipt.issues))} ม้วน</small></label>
+              <label>น้ำหนักที่เบิก (Kg)<input type="number" min="0" max={Math.max(0, totalWeight(issueReceipt.rolls) - issuedWeight(issueReceipt.issues))} step="0.01" required value={issueForm.weightKg} onChange={e => setIssueForm(f => ({ ...f, weightKg: e.target.value }))} style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6 }} /><small style={{ color: "#92400e" }}>คงเหลือ {Math.max(0, totalWeight(issueReceipt.rolls) - issuedWeight(issueReceipt.issues)).toFixed(2)} Kg</small></label>
+              <label style={{ gridColumn: "1 / -1" }}>เบิกไปทำอะไร / หมายเหตุ<textarea required value={issueForm.purpose} onChange={e => setIssueForm(f => ({ ...f, purpose: e.target.value }))} rows={2} style={{ width: "100%", padding: 8, border: "1px solid #d1d5db", borderRadius: 6, resize: "vertical" }} placeholder="เช่น เบิกผลิตงานรหัสสินค้า ABC-001" /></label>
+            </div>
+            <button type="submit" disabled={issueLoading} style={{ marginTop: 14, padding: "9px 18px", background: "#d97706", color: "white", border: "none", borderRadius: 7, fontWeight: 700, cursor: issueLoading ? "not-allowed" : "pointer" }}>{issueLoading ? "กำลังบันทึก..." : "บันทึกการเบิก"}</button>
+          </form>
+          <div style={{ marginTop: 20, overflowX: "auto" }}>
+            <h4 style={{ marginBottom: 8 }}>ประวัติการเบิก</h4>
+            {issueReceipt.issues?.length ? (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead><tr style={{ background: "#fffbeb" }}><th style={{ padding: 8, textAlign: "left" }}>วันที่</th><th style={{ padding: 8, textAlign: "left" }}>ผู้เบิก</th><th style={{ padding: 8, textAlign: "center" }}>จำนวนม้วน</th><th style={{ padding: 8, textAlign: "center" }}>Kg</th><th style={{ padding: 8, textAlign: "left" }}>หมายเหตุ</th><th /></tr></thead>
+                <tbody>{issueReceipt.issues.map(issue => <tr key={issue.id} style={{ borderBottom: "1px solid #e5e7eb" }}><td style={{ padding: 8 }}>{issue.issueDate}</td><td style={{ padding: 8 }}>{issue.issuer}</td><td style={{ padding: 8, textAlign: "center" }}>{issue.rollCount}</td><td style={{ padding: 8, textAlign: "center" }}>{issue.weightKg || "-"}</td><td style={{ padding: 8 }}>{issue.purpose}</td><td style={{ padding: 8, textAlign: "right" }}><button type="button" onClick={() => handleIssueDelete(issueReceipt.id, issue.id)} style={{ padding: "3px 8px", background: "#ef4444", color: "white", border: "none", borderRadius: 4, fontSize: 11, cursor: "pointer" }}>ลบ</button></td></tr>)}</tbody>
+              </table>
+            ) : <div style={{ color: "#6b7280", fontSize: 13 }}>ยังไม่มีประวัติการเบิก</div>}
+          </div>
+        </div>
+      )}
 
       {/* ─ Hidden print template ─ */}
       <div ref={printRef} style={{ position: "absolute", left: "-9999px", top: 0 }}>
@@ -503,7 +619,7 @@ function WIPPrintSheet({ receipt }: { receipt: ReceiptData }) {
       <table className="wip-table">
         <thead>
           <tr>
-            <th rowSpan={2} style={{ width: 40 }}>มวนที่</th>
+            <th rowSpan={2} style={{ width: 40 }}>ม้วนที่</th>
             <th rowSpan={2} style={{ width: 70 }}>น้ำหนัก<br/>Kg</th>
             <th rowSpan={2} style={{ width: 70 }}>วันที่เบิก<br/>ผลิต</th>
             <th rowSpan={2} style={{ width: 60 }}>ผู้เบิก</th>

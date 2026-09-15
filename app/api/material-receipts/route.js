@@ -22,6 +22,7 @@ export async function GET() {
     orderBy: { updatedAt: "desc" },
     include: {
       rolls: { orderBy: { rollNo: "asc" } },
+      issues: { orderBy: { issueDate: "desc" } },
       material: { select: { id: true, name: true, unit: true, unitPrice: true } }, // ← เพิ่ม เพื่อให้ frontend รู้ว่าลิงก์กับ catalog ตัวไหน
     },
   });
@@ -47,6 +48,7 @@ export async function POST(request) {
     },
     include: {
       rolls: { orderBy: { rollNo: "asc" } },
+      issues: { orderBy: { issueDate: "desc" } },
       material: { select: { id: true, name: true, unit: true, unitPrice: true } },
     },
   });

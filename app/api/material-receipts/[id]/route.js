@@ -39,6 +39,7 @@ export async function PUT(request, { params }) {
       },
       include: {
         rolls: { orderBy: { rollNo: "asc" } },
+        issues: { orderBy: { issueDate: "desc" } },
         material: { select: { id: true, name: true, unit: true, unitPrice: true } }, // ← เพิ่มด้วย
       },
     });
@@ -51,6 +52,7 @@ export async function GET(request, { params }) {
     where: { id: params.id },
     include: {
       rolls: { orderBy: { rollNo: "asc" } },
+      issues: { orderBy: { issueDate: "desc" } },
       material: { select: { id: true, name: true, unit: true, unitPrice: true } }, // ← เพิ่มด้วยเช่นกัน
     },
   });

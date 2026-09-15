@@ -24,6 +24,7 @@ type CustomerForm = {
   phone: string;
   address: string;
   image: string | null;
+  password: string;
 };
 
 type ManHourJob = {
@@ -727,7 +728,7 @@ export function CustomerView() {
   const [error, setError] = useState<string | null>(null);
 
   const [customerForm, setCustomerForm] = useState<CustomerForm>({
-    name: "", email: "", role: "EMPLOYEE", phone: "", address: "", image: null,
+    name: "", email: "", role: "EMPLOYEE", phone: "", address: "", image: null, password: "",
   });
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -807,7 +808,7 @@ export function CustomerView() {
 
   function openAdd() {
     setSelectedCustomer(null);
-    setCustomerForm({ name: "", email: "", role: "EMPLOYEE", phone: "", address: "", image: null });
+    setCustomerForm({ name: "", email: "", role: "EMPLOYEE", phone: "", address: "", image: null, password: "" });
     setShowEditModal(true);
   }
 
@@ -821,6 +822,7 @@ export function CustomerView() {
       phone: customer.phone ?? "",
       address: customer.address ?? "",
       image: customer.image ?? null,
+      password: "",
     });
     setShowEditModal(true);
   }
@@ -838,6 +840,8 @@ export function CustomerView() {
 
     if (!customerForm.name.trim()) { showErr("กรุณากรอกชื่อสมาชิก"); return; }
     if (!customerForm.email.trim()) { showErr("กรุณากรอกอีเมล"); return; }
+    if (!customerForm.id && customerForm.password.length < 6) { showErr("กรุณากรอกรหัสผ่านอย่างน้อย 6 ตัวอักษร"); return; }
+    if (customerForm.id && customerForm.password && customerForm.password.length < 6) { showErr("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"); return; }
 
     const payload = {
       name: customerForm.name.trim(),
@@ -846,6 +850,7 @@ export function CustomerView() {
       phone: customerForm.phone.trim() || null,
       address: customerForm.address.trim() || null,
       image: customerForm.image,
+      password: customerForm.password || undefined,
     };
 
     const isEdit = !!customerForm.id;
@@ -974,6 +979,18 @@ export function CustomerView() {
                     value={customerForm.phone}
                     onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
                     placeholder="เช่น 081-234-5678"
+                  />
+                </div>
+
+                <div className="field-group">
+                  <label>รหัสผ่านเข้าสู่ระบบ {!customerForm.id && <span style={{ color: "#e53e3e" }}>*</span>}</label>
+                  <input
+                    type="password"
+                    value={customerForm.password}
+                    onChange={(e) => setCustomerForm({ ...customerForm, password: e.target.value })}
+                    placeholder={customerForm.id ? "เว้นว่างถ้าไม่เปลี่ยนรหัสผ่าน" : "อย่างน้อย 6 ตัวอักษร"}
+                    minLength={6}
+                    required={!customerForm.id}
                   />
                 </div>
 
