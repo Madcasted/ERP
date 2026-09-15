@@ -48,7 +48,9 @@ export async function middleware(request: NextRequest) {
   const isLoginPage = pathname === "/login";
   const isLoginApi = pathname === "/api/login" && request.method === "POST";
   const isLogoutApi = pathname === "/api/logout";
-  const isPublicAsset = pathname.startsWith("/_next/") || pathname === "/favicon.ico";
+  const isPublicAsset = pathname.startsWith("/_next/")
+    || pathname === "/favicon.ico"
+    || /\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js|woff2?)$/i.test(pathname);
 
   if (isLoginPage || isLoginApi || isLogoutApi || isPublicAsset) return NextResponse.next();
 
