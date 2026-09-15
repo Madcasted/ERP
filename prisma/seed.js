@@ -15,7 +15,11 @@ async function main() {
     where: {
       email: "admin@erp.local",
     },
-    update: {},
+    update: {
+      name: "Admin User",
+      password: adminPassword,
+      role: "ADMIN",
+    },
     create: {
       email: "admin@erp.local",
       name: "Admin User",
@@ -28,7 +32,11 @@ async function main() {
     where: {
       email: "manager@erp.local",
     },
-    update: {},
+    update: {
+      name: "Manager User",
+      password: managerPassword,
+      role: "MANAGER",
+    },
     create: {
       email: "manager@erp.local",
       name: "Manager User",
