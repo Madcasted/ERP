@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ const inputCellStyle: React.CSSProperties = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function VaccumMachineSettings({ machineId, machineName }: Props) {
+function VaccumMachineSettings({ machineId, machineName }: Props) {
   const [headerProduct, setHeaderProduct] = useState("");
   const [headerMat, setHeaderMat] = useState("800");
   const [headerCompany, setHeaderCompany] = useState("เจินหยง");
@@ -893,4 +894,12 @@ export default function VaccumMachineSettings({ machineId, machineName }: Props)
       )}
     </>
   );
+}
+
+export default function NewMachinePage() {
+  const searchParams = useSearchParams();
+  const machineId = searchParams.get("machineId") || "";
+  const machineName = searchParams.get("machineName") || "เครื่องจักรใหม่";
+
+  return <VaccumMachineSettings machineId={machineId} machineName={machineName} />;
 }
