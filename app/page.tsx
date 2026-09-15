@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { readSessionValue, SESSION_COOKIE } from "@/lib/auth";
 import DashboardShell from "./components/DashboardShell";
 
 function receiptCost(receipt: { unitPrice: number | null; rolls: { weightKg: number }[] }) {
@@ -67,6 +70,8 @@ async function getDashboardData() {
 }
 
 export default async function HomePage() {
+  const session = readSessionValue(cookies().get(SESSION_COOKIE)?.value);
+  if (!session) redirect("/login");
   const { products, totals, recentMaterials, lowStockProducts, recentMachines } = await getDashboardData();
 
   return (

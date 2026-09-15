@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { hash } from "bcryptjs";
 
 export async function GET() {
   const customers = await prisma.$queryRaw`
@@ -14,23 +15,28 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
+    if (!body.password || body.password.length < 6) {
+      return NextResponse.json({ message: "กรุณากรอกรหัสผ่านอย่างน้อย 6 ตัวอักษร" }, { status: 400 });
+    }
     const id = randomUUID();
     const now = new Date();
-    const [customer] = await prisma.$queryRaw`
-      INSERT INTO "Customer" ("id", "name", "email", "role", "phone", "address", "image", "createdAt", "updatedAt")
-      VALUES (
-        ${id},
-        ${body.name},
-        ${body.email},
-        ${body.role || "EMPLOYEE"},
-        ${body.phone || null},
-        ${body.address || null},
-        ${body.image || null},
-        ${now},
-        ${now}
-      )
-      RETURNING "id", "name", "email", "role", "phone", "address", "image", "createdAt", "updatedAt"
-    `;
+    const [customer] = await prisma.$transaction(async (tx) => {
+      const created = await tx.$queryRaw`
+        INSERT INTO "Customer" ("id", "name", "email", "role", "phone", "address", "image", "createdAt", "updatedAt")
+        VALUES (${id}, ${body.name}, ${body.email.trim()}, ${body.role || "EMPLOYEE"}, ${body.phone || null}, ${body.address || null}, ${body.image || null}, ${now}, ${now})
+        RETURNING "id", "name", "email", "role", "phone", "address", "image", "createdAt", "updatedAt"
+      `;
+      await tx.user.create({
+        data: {
+          name: body.name,
+          email: body.email.trim().toLowerCase(),
+          password: await hash(body.password, 10),
+          role: ["ADMIN", "MANAGER"].includes(body.role) ? body.role : "EMPLOYEE",
+          image: body.image || null,
+        },
+      });
+      return created;
+    });
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {
     console.error("Create customer failed:", error);

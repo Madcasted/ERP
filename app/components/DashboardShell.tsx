@@ -13,6 +13,8 @@ import { SettingsPanel } from "./SettingsPanel";
 type Product = any;
 type MaterialReceiving = any;
 type Machine = any;
+type CurrentUser = { id: string; name: string; email: string; role: string; image?: string | null };
+type DashboardNotification = { id: string; icon: string; title: string; detail: string; tone: "warning" | "info" };
 
 type DashboardTotals = {
   products: number;
@@ -45,6 +47,65 @@ const emptyTotals: DashboardTotals = {
   materials: 0,
   machines: 0,
   totalMaterialCost: 0,
+};
+
+const profileOverlayStyle: React.CSSProperties = {
+  position: "fixed", inset: 0, zIndex: 2100, padding: 16,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  background: "rgba(15, 23, 42, 0.55)",
+};
+
+const profileModalStyle: React.CSSProperties = {
+  width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto",
+  padding: 28, borderRadius: 16, background: "#fff",
+  boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+};
+
+const profileModalHeaderStyle: React.CSSProperties = {
+  display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 22,
+};
+
+const profileCloseButtonStyle: React.CSSProperties = {
+  width: 36, height: 36, border: "none", borderRadius: 10, background: "#f1f5f9",
+  color: "#475569", fontSize: 25, lineHeight: 1, cursor: "pointer",
+};
+
+const profileFormGridStyle: React.CSSProperties = {
+  display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16,
+};
+
+const profileLabelStyle: React.CSSProperties = {
+  display: "block", color: "#334155", fontSize: 13, fontWeight: 600,
+};
+
+const profileInputStyle: React.CSSProperties = {
+  display: "block", width: "100%", marginTop: 6, padding: "10px 11px",
+  border: "1px solid #cbd5e1", borderRadius: 8, outline: "none", fontSize: 14,
+};
+
+const profileAvatarStyle: React.CSSProperties = {
+  width: 76, height: 76, borderRadius: "50%", flexShrink: 0, objectFit: "cover",
+  border: "1px solid #cbd5e1",
+};
+
+const profileRemoveButtonStyle: React.CSSProperties = {
+  marginTop: 7, padding: "4px 9px", border: "none", borderRadius: 6,
+  background: "#fee2e2", color: "#b91c1c", cursor: "pointer", fontSize: 12,
+};
+
+const profileModalActionsStyle: React.CSSProperties = {
+  display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24, paddingTop: 18,
+  borderTop: "1px solid #e2e8f0",
+};
+
+const profileCancelButtonStyle: React.CSSProperties = {
+  padding: "10px 18px", border: "1px solid #cbd5e1", borderRadius: 8,
+  background: "#fff", color: "#475569", fontWeight: 600, cursor: "pointer",
+};
+
+const profileSaveButtonStyle: React.CSSProperties = {
+  padding: "10px 18px", border: "none", borderRadius: 8,
+  background: "#2c9e6e", color: "#fff", fontWeight: 700, cursor: "pointer",
 };
 
 // จัดระดับความเร่งด่วนของสต็อกสินค้า เพื่อขึ้นสีป้ายให้เห็นชัดเจนโดยไม่ต้องพึ่ง CSS เพิ่ม
@@ -111,6 +172,43 @@ function DashboardShellInner({
   const [timeRange, setTimeRange] = useState<"month" | "quarter" | "year">("month");
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", email: "", image: "", password: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  const notifications: DashboardNotification[] = [
+    ...safeLowStockProducts.map((product) => ({
+      id: `stock-${product.id}`,
+      icon: "bx bxs-error-circle",
+      title: `สต็อกต่ำ: ${product.name}`,
+      detail: `เหลือ ${numberFormatter.format(Number(product.stock) || 0)} ชิ้น`,
+      tone: "warning" as const,
+    })),
+    ...safeRecentMaterials.slice(0, 5).map((receipt) => ({
+      id: `receipt-${receipt.id}`,
+      icon: "bx bxs-package",
+      title: `รับวัสดุเข้า: ${receipt.materialName}`,
+      detail: timeAgo(receipt.createdAt),
+      tone: "info" as const,
+    })),
+    ...safeRecentMachines.slice(0, 3).map((machine) => ({
+      id: `machine-${machine.id}`,
+      icon: "bx bxs-cog",
+      title: `เครื่องจักรอัปเดต: ${machine.name}`,
+      detail: timeAgo(machine.updatedAt),
+      tone: "info" as const,
+    })),
+  ];
+
+  useEffect(() => {
+    fetch("/api/me").then((response) => response.ok ? response.json() : null).then((data) => {
+      if (data?.user) {
+        setCurrentUser(data.user);
+        setProfileForm({ name: data.user.name || "", email: data.user.email || "", image: data.user.image || "", password: "" });
+      }
+    }).catch(() => undefined);
+  }, []);
 
   // ถ้าผู้ใช้เปลี่ยนค่า default การย่อเมนูในหน้าตั้งค่า ให้ sync ทันที (เฉพาะตอนที่ยังไม่ได้เปิด/ปิดเองระหว่างเซสชัน)
   useEffect(() => {
@@ -129,6 +227,38 @@ function DashboardShellInner({
     setProfileOpen(false);
   }
 
+  function handleOpenProfile(e: React.MouseEvent) {
+    e.preventDefault();
+    setProfileOpen(false);
+    setProfileModalOpen(true);
+  }
+
+  function handleProfileImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => setProfileForm((form) => ({ ...form, image: event.target?.result as string }));
+    reader.readAsDataURL(file);
+  }
+
+  async function handleProfileSave() {
+    setProfileSaving(true);
+    const response = await fetch("/api/me", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(profileForm),
+    });
+    const data = await response.json().catch(() => ({}));
+    setProfileSaving(false);
+    if (!response.ok) {
+      window.alert(data.error || "แก้ไขข้อมูลไม่สำเร็จ");
+      return;
+    }
+    setCurrentUser(data.user);
+    setProfileForm((form) => ({ ...form, password: "" }));
+    setProfileModalOpen(false);
+  }
+
   // เปิด modal ยืนยันออกจากระบบจากเมนูโปรไฟล์
   function handleRequestLogout(e: React.MouseEvent) {
     e.preventDefault();
@@ -136,9 +266,9 @@ function DashboardShellInner({
     setLogoutConfirmOpen(true);
   }
 
-  function handleConfirmLogout() {
+  async function handleConfirmLogout() {
     setLoggingOut(true);
-    // ลบข้อมูลที่เก็บไว้ (ถ้ามี)
+    await fetch("/api/logout", { method: "POST" }).catch(() => undefined);
     localStorage.clear();
     sessionStorage.clear();
 
@@ -228,14 +358,29 @@ function DashboardShellInner({
             }}
           >
             <i className='bx bxs-bell bx-tada-hover'></i>
-            {safeTotals.lowStock > 0 && <span className="num">{safeTotals.lowStock}</span>}
+            {notifications.length > 0 && <span className="num">{notifications.length}</span>}
           </a>
           <div className={`notification-menu${notificationOpen ? " show" : ""}`} id="notificationMenu">
             <ul>
-              <li>รายการแจ้งเตือนใหม่</li>
-              <li>สินค้าคงคลังต่ำ {safeTotals.lowStock} รายการ</li>
-              <li>เครื่องจักรต้องตรวจสอบ</li>
-              <li>อัปเดตระบบพร้อมใช้งาน</li>
+              {notifications.length === 0 ? (
+                <li><i className="bx bx-check-circle" style={{ marginRight: 8 }} />ไม่มีรายการแจ้งเตือน</li>
+              ) : notifications.map((notification) => (
+                <li key={notification.id}>
+                  <a
+                    href="#"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setSelected("dashboard");
+                      setNotificationOpen(false);
+                    }}
+                    style={{ display: "block", color: "inherit" }}
+                  >
+                    <i className={notification.icon} style={{ color: notification.tone === "warning" ? "#d97706" : "#2563eb", marginRight: 8 }} />
+                    <strong style={{ display: "block", fontSize: 13 }}>{notification.title}</strong>
+                    <small style={{ color: "#64748b" }}>{notification.detail}</small>
+                  </a>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -249,11 +394,11 @@ function DashboardShellInner({
               setNotificationOpen(false);
             }}
           >
-            <img src="https://placehold.co/600x400/png" alt="Profile" />
+            {currentUser?.image ? <img src={currentUser.image} alt={currentUser.name} /> : <span style={{ color: "white", fontWeight: 700 }}>{currentUser?.name?.charAt(0)?.toUpperCase() || "U"}</span>}
           </a>
           <div className={`profile-menu${profileOpen ? " show" : ""}`} id="profileMenu">
             <ul>
-              <li><a href="#">โปรไฟล์</a></li>
+              <li><a href="#" onClick={handleOpenProfile}>โปรไฟล์ {currentUser ? `(${currentUser.name})` : ""}</a></li>
               <li>
                 <a href="#" onClick={handleGoToSettings}>
                   ตั้งค่า
@@ -282,10 +427,6 @@ function DashboardShellInner({
                 </li>
               </ul>
             </div>
-            <a href="#" className="btn-download" target="_blank">
-              <i className='bx bxs-cloud-download bx-fade-down-hover'></i>
-              <span className="text">อัปเดต V2.5</span>
-            </a>
           </div>
 
           {selected === "dashboard" && (
@@ -505,6 +646,55 @@ function DashboardShellInner({
           {selected === "settings" && <SettingsPanel />}
         </main>
       </section>
+
+      {profileModalOpen && (
+        <div style={profileOverlayStyle} onMouseDown={(event) => { if (event.target === event.currentTarget) setProfileModalOpen(false); }}>
+          <div style={profileModalStyle}>
+            <div style={profileModalHeaderStyle}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 22 }}>แก้ไขข้อมูลส่วนตัว</h2>
+                <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 13 }}>ข้อมูลนี้จะใช้กับบัญชีที่กำลังล็อกอินอยู่</p>
+              </div>
+              <button type="button" onClick={() => setProfileModalOpen(false)} style={profileCloseButtonStyle} aria-label="ปิด">×</button>
+            </div>
+
+            <div style={profileFormGridStyle}>
+              <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 16, padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                {profileForm.image ? (
+                  <img src={profileForm.image} alt={profileForm.name || "โปรไฟล์"} style={profileAvatarStyle} />
+                ) : (
+                  <div style={{ ...profileAvatarStyle, background: "linear-gradient(135deg, #2c9e6e, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 28, fontWeight: 700 }}>
+                    {profileForm.name?.charAt(0)?.toUpperCase() || "U"}
+                  </div>
+                )}
+                <div>
+                  <label style={profileLabelStyle}>รูปโปรไฟล์</label>
+                  <input type="file" accept="image/*" onChange={handleProfileImageChange} style={{ display: "block", marginTop: 7, fontSize: 12 }} />
+                  {profileForm.image && <button type="button" onClick={() => setProfileForm((form) => ({ ...form, image: "" }))} style={profileRemoveButtonStyle}>ลบรูป</button>}
+                </div>
+              </div>
+
+              <label style={profileLabelStyle}>ชื่อ
+                <input value={profileForm.name} onChange={(e) => setProfileForm((form) => ({ ...form, name: e.target.value }))} style={profileInputStyle} required />
+              </label>
+              <label style={profileLabelStyle}>อีเมล
+                <input type="email" value={profileForm.email} onChange={(e) => setProfileForm((form) => ({ ...form, email: e.target.value }))} style={profileInputStyle} required />
+              </label>
+              <label style={{ ...profileLabelStyle, gridColumn: "1 / -1" }}>รูปโปรไฟล์ URL (ถ้าไม่เลือกไฟล์)
+                <input value={profileForm.image.startsWith("data:") ? "" : profileForm.image} onChange={(e) => setProfileForm((form) => ({ ...form, image: e.target.value }))} placeholder="https://..." style={profileInputStyle} />
+              </label>
+              <label style={{ ...profileLabelStyle, gridColumn: "1 / -1" }}>รหัสผ่านใหม่
+                <input type="password" value={profileForm.password} onChange={(e) => setProfileForm((form) => ({ ...form, password: e.target.value }))} placeholder="เว้นว่างถ้าไม่เปลี่ยนรหัสผ่าน" minLength={6} style={profileInputStyle} />
+              </label>
+            </div>
+
+            <div style={profileModalActionsStyle}>
+              <button type="button" onClick={() => setProfileModalOpen(false)} style={profileCancelButtonStyle}>ยกเลิก</button>
+              <button type="button" onClick={handleProfileSave} disabled={profileSaving} style={profileSaveButtonStyle}>{profileSaving ? "กำลังบันทึก..." : "บันทึกข้อมูล"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal ยืนยันออกจากระบบ (เรียกจากเมนูโปรไฟล์) — ใช้สไตล์ .logout-modal ร่วมกับ Sidebar */}
       <Modal

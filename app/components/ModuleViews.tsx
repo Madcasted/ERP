@@ -96,6 +96,7 @@ type User = {
   name: string;
   email: string;
   role: string;
+  image?: string | null;
 };
 
 type Material = {
@@ -4155,19 +4156,43 @@ export function ReportView() {
 
 export function SystemView() {
   const isMobile = useIsMobile();
-  const { users, loading: cacheLoading } = useCache();
+  const { users, loading: cacheLoading, refresh } = useCache();
   const loading = cacheLoading && users.length === 0;
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "EMPLOYEE", image: "" });
+
+  async function handleAddUser(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const response = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const data = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) { showToast(data.error || "เพิ่มผู้ใช้งานไม่สำเร็จ", "error"); return; }
+    setForm({ name: "", email: "", password: "", role: "EMPLOYEE", image: "" });
+    setShowAddUser(false);
+    await refresh();
+    showToast("เพิ่มผู้ใช้งานสำเร็จ");
+  }
 
   return (
     <section className="module-panel">
-      <div className="module-header"><div><h2>ระบบ</h2><p>จัดการผู้ใช้งาน สิทธิ์ และตั้งค่าระบบพื้นฐาน</p></div></div>
+      <div className="module-header"><div><h2>ระบบ</h2><p>จัดการผู้ใช้งาน สิทธิ์ และตั้งค่าระบบพื้นฐาน</p></div><button type="button" className="btn" onClick={() => setShowAddUser((value) => !value)}>{showAddUser ? "ปิดฟอร์ม" : "+ เพิ่มสมาชิก"}</button></div>
+      {showAddUser && <form onSubmit={handleAddUser} style={{ background: "white", padding: 18, borderRadius: 16, marginBottom: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        <label>ชื่อ<input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></label>
+        <label>อีเมล<input required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></label>
+        <label>รหัสผ่าน<input required type="password" minLength={6} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} /></label>
+        <label>บทบาท<select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}><option value="EMPLOYEE">พนักงาน</option><option value="MANAGER">ผู้จัดการ</option><option value="ADMIN">ผู้ดูแลระบบ</option></select></label>
+        <label>รูปโปรไฟล์ URL<input value={form.image} onChange={(e) => setForm((f) => ({ ...f, image: e.target.value }))} placeholder="https://..." /></label>
+        <div style={{ display: "flex", alignItems: "end" }}><button type="submit" className="btn" disabled={saving}>{saving ? "กำลังบันทึก..." : "บันทึกสมาชิก"}</button></div>
+      </form>}
       {isMobile ? (
         <div>
           {loading && <div style={{ textAlign: "center", padding: 24, color: "#888" }}>กำลังโหลดข้อมูลผู้ใช้...</div>}
           {!loading && users.length === 0 && <div style={{ textAlign: "center", padding: 24, color: "#888", background: "white", borderRadius: 16 }}>ยังไม่มีผู้ใช้งานในระบบ</div>}
           {users.map((user) => (
             <div key={user.id} style={{ background: "white", borderRadius: 16, padding: 16, marginBottom: 10, border: "1px solid #e8f0e9", display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #667eea, #764ba2)", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 18, flexShrink: 0 }}>{user.name?.charAt(0)?.toUpperCase() || "?"}</div>
+              {user.image ? <img src={user.image} alt={user.name} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} /> : <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #667eea, #764ba2)", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 18, flexShrink: 0 }}>{user.name?.charAt(0)?.toUpperCase() || "?"}</div>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{user.name}</div>
                 <div style={{ fontSize: 13, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
