@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET(request, { params }) {
   try {
     const [machine] = await prisma.$queryRaw`
-      SELECT "id", "name", "code", "description", "createdAt", "updatedAt"
+      SELECT "id", "name", "code", "description", "note", "createdAt", "updatedAt"
       FROM "Machine"
       WHERE "id" = ${params.id}
     `;
@@ -37,9 +37,10 @@ export async function PUT(request, { params }) {
         "name" = ${body.name},
         "code" = ${body.code || body.name.replace(/\s+/g, '-').toLowerCase() + '-' + params.id.slice(0, 6)},
         "description" = ${body.description || null},
+        "note" = ${body.note || null},
         "updatedAt" = ${now}
       WHERE "id" = ${params.id}
-      RETURNING "id", "name", "code", "description", "createdAt", "updatedAt"
+      RETURNING "id", "name", "code", "description", "note", "createdAt", "updatedAt"
     `;
 
     if (!machine) {

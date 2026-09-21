@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
 import { hash } from "bcryptjs";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const customers = await prisma.$queryRaw`
     SELECT "id", "name", "email", "role", "phone", "address", "image", "createdAt", "updatedAt"
