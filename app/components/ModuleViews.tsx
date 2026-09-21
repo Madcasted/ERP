@@ -50,6 +50,8 @@ type Product = {
   labelLots?: LabelLot[] | null;
   printCount?: number | null;
   type: string;
+  category?: string | null;
+  customerCompany?: string | null;
   stock: number;
   price: number;
   description?: string | null;
@@ -145,6 +147,8 @@ type ProductForm = {
   name: string;
   sku: string;
   type: string;
+  category: string;
+  customerCompany: string;
   stock: number;
   price: number;
   warehouseId: string;
@@ -173,6 +177,33 @@ type ProductForm = {
   // How many copies to print
   printCount: number;
 };
+
+// ประเภทสินค้า (ใช้จัดกลุ่มสินค้าตามหน้างานผลิต)
+const productCategoryOptions = [
+  { value: "", label: "ไม่ระบุ" },
+  { value: "PARTITION", label: "Partition" },
+  { value: "TRAY", label: "Tray" },
+  { value: "BOX_PP", label: "Box PP" },
+  { value: "BOX_TP", label: "Box TP" },
+  { value: "PAPER_BOX", label: "Paper Box" },
+  { value: "WOOD_CORNER", label: "ไม้มุม" },
+];
+
+function getProductCategoryLabel(category?: string | null) {
+  return productCategoryOptions.find((o) => o.value === (category ?? ""))?.label ?? "";
+}
+
+function getProductStructureLabel(type?: string | null) {
+  return type === "COMPOSITE" ? "สินค้าประกอบ" : "สินค้าเดี่ยว";
+}
+
+function calcProductTotal(price?: number | null, stock?: number | null) {
+  return (Number(price) || 0) * (Number(stock) || 0);
+}
+
+function formatBaht(value: number) {
+  return value.toLocaleString("th-TH", { style: "currency", currency: "THB" });
+}
 
 type MaterialForm = {
   id?: string;
@@ -1592,7 +1623,7 @@ export function InventoryView() {
   useEffect(() => { setMaterials(cachedMaterials); }, [cachedMaterials]);
 
   const defaultProductForm: ProductForm = {
-    name: "", sku: "", type: "SINGLE", stock: 0, price: 0,
+    name: "", sku: "", type: "SINGLE", category: "", customerCompany: "", stock: 0, price: 0,
     warehouseId: "", qrCode: "", qrColor: "#000000",
     image: null, description: "", details: "",
     labelCompany: "T SIAMPACK CO., LTD.",
@@ -1687,6 +1718,8 @@ export function InventoryView() {
       name: product.name,
       sku: product.sku,
       type: product.type,
+      category: product.category || "",
+      customerCompany: product.customerCompany || "",
       stock: product.stock,
       price: product.price || 0,
       warehouseId: product.warehouseId || "",
@@ -1736,6 +1769,8 @@ export function InventoryView() {
         name: productForm.name,
         sku: productForm.sku,
         type: productForm.type,
+        category: productForm.category || null,
+        customerCompany: productForm.customerCompany.trim() || null,
         price: productForm.price,
         stock: productForm.stock,
         warehouseId: productForm.warehouseId || null,
@@ -2069,6 +2104,12 @@ export function InventoryView() {
           <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, color: "#374151" }}>📍 {product.warehouse?.name || "-"}</span>
             <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 10, color: product.stock === 0 ? "#e53e3e" : product.stock < 10 ? "#dd6b20" : "#38a169", background: product.stock === 0 ? "#fff5f5" : product.stock < 10 ? "#fffaf0" : "#f0fff4" }}>{product.stock} ชิ้น</span>
+            {getProductCategoryLabel(product.category) && <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10, background: "#eff6ff", color: "#1d4ed8", fontWeight: 600 }}>🏷️ {getProductCategoryLabel(product.category)}</span>}
+          </div>
+          {product.customerCompany && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>🏢 {product.customerCompany}</div>}
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#16a34a", marginTop: 6 }}>
+            ราคารวม {formatBaht(calcProductTotal(product.price, product.stock))}
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#6b7280", marginLeft: 6 }}>({formatBaht(Number(product.price) || 0)}/ชิ้น)</span>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
@@ -2173,10 +2214,21 @@ export function InventoryView() {
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                   <div className="field-group"><label>ชื่อสินค้า</label><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} required /></div>
                   <div className="field-group"><label>SKU</label><input value={productForm.sku} onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })} required /></div>
-                  <div className="field-group"><label>ประเภท</label><select value={productForm.type} onChange={(e) => setProductForm({ ...productForm, type: e.target.value })}><option value="SINGLE">สินค้าเดี่ยว</option><option value="COMPOSITE">สินค้าประกอบ</option></select></div>
+                  <div className="field-group">
+                    <label>ประเภทสินค้า</label>
+                    <select value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}>
+                      {productCategoryOptions.map((opt) => <option key={opt.value || "none"} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field-group"><label>โครงสร้างสินค้า</label><select value={productForm.type} onChange={(e) => setProductForm({ ...productForm, type: e.target.value })}><option value="SINGLE">สินค้าเดี่ยว</option><option value="COMPOSITE">สินค้าประกอบ</option></select></div>
+                  <div className="field-group"><label>บริษัทลูกค้า</label><input value={productForm.customerCompany} onChange={(e) => setProductForm({ ...productForm, customerCompany: e.target.value })} placeholder="เช่น บริษัท เจินหยง จำกัด" /></div>
                   <div className="field-group"><label>คลัง</label><select value={productForm.warehouseId} onChange={(e) => setProductForm({ ...productForm, warehouseId: e.target.value })}>{warehouseOptions.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>
                   <div className="field-group"><label>สต็อก</label><input type="number" min="0" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: Number(e.target.value) })} /></div>
-                  <div className="field-group"><label>ราคา</label><input type="number" min="0" step="0.01" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} /></div>
+                  <div className="field-group">
+                    <label>ราคา/ชิ้น</label>
+                    <input type="number" min="0" step="0.01" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} />
+                    <small className="sub-text">ราคารวม (ราคา/ชิ้น × สต็อก) = {formatBaht(calcProductTotal(productForm.price, productForm.stock))}</small>
+                  </div>
                   <div className="field-group" style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label>ภาพสินค้า</label><input type="file" accept="image/*" onChange={handleProductImageChange} />{productForm.image && <img src={productForm.image} alt="preview" style={{ maxWidth: 120, marginTop: 8, borderRadius: 4 }} />}</div>
                   <div className="field-group" style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label>คำอธิบาย</label><textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} rows={2} style={{ width: "100%", boxSizing: "border-box" }} /></div>
                   <div className="field-group" style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><label>รายละเอียดเพิ่มเติม</label><textarea value={productForm.details} onChange={(e) => setProductForm({ ...productForm, details: e.target.value })} rows={2} style={{ width: "100%", boxSizing: "border-box" }} /></div>
@@ -2479,10 +2531,13 @@ export function InventoryView() {
             {selectedProduct.image && <img src={selectedProduct.image} alt={selectedProduct.name} style={{ width: "100%", maxHeight: 280, objectFit: "cover", borderRadius: 8, marginBottom: 20 }} />}
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div><strong>SKU:</strong> {selectedProduct.sku}</div>
-              <div><strong>ประเภท:</strong> {selectedProduct.type === "COMPOSITE" ? "สินค้าประกอบ" : "สินค้าเดี่ยว"}</div>
+              <div><strong>ประเภทสินค้า:</strong> {getProductCategoryLabel(selectedProduct.category) || "-"}</div>
+              <div><strong>โครงสร้าง:</strong> {getProductStructureLabel(selectedProduct.type)}</div>
+              <div><strong>บริษัทลูกค้า:</strong> {selectedProduct.customerCompany || "-"}</div>
               <div><strong>คลัง:</strong> {selectedProduct.warehouse?.name || "-"}</div>
               <div><strong>สต็อก:</strong> {selectedProduct.stock} ชิ้น</div>
-              <div style={{ gridColumn: isMobile ? "1" : "1 / -1" }}><strong>ราคา:</strong> {selectedProduct.price?.toLocaleString("th-TH", { style: "currency", currency: "THB" }) ?? "-"}</div>
+              <div><strong>ราคาต่อชิ้น:</strong> {formatBaht(Number(selectedProduct.price) || 0)}</div>
+              <div><strong>ราคารวม (ราคา/ชิ้น × จำนวน):</strong> {formatBaht(calcProductTotal(selectedProduct.price, selectedProduct.stock))}</div>
             </div>
 
             {/* ── QR section with saved color ── */}
@@ -2971,14 +3026,17 @@ export function InventoryView() {
           ) : (
             <div className="table-responsive">
               <table>
-                <thead><tr><th>ภาพ</th><th>ชื่อ</th><th>SKU / QR Code</th><th>ประเภท</th><th>คลัง</th><th>สต็อก</th><th>ราคา</th><th>จัดการ</th></tr></thead>
+                <thead><tr><th>ภาพ</th><th>ชื่อ</th><th>SKU / QR Code</th><th>ประเภทสินค้า</th><th>คลัง</th><th>สต็อก</th><th>ราคารวม</th><th>จัดการ</th></tr></thead>
                 <tbody>
                   {loading && <tr><td colSpan={8} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
                   {!loading && filteredProducts.length === 0 && <tr><td colSpan={8} className="text-center">ไม่พบสินค้า</td></tr>}
                   {!loading && filteredProducts.map((product) => (
                     <tr key={product.id} style={{ cursor: "pointer" }} onClick={() => { setSelectedProduct(product); setShowProductDetailModal(true); }}>
                       <td>{product.image ? <img src={product.image} alt={product.name} style={{ maxWidth: 60, maxHeight: 60, borderRadius: 4 }} /> : <span className="text-muted">ไม่มีภาพ</span>}</td>
-                      <td>{product.name}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{product.name}</div>
+                        {product.customerCompany && <small className="sub-text">🏢 {product.customerCompany}</small>}
+                      </td>
                       <td>
                         <div>{product.sku}</div>
                         {product.qrCode && (
@@ -2997,10 +3055,16 @@ export function InventoryView() {
                         )}
                         {!product.qrCode && <small className="sub-text">-</small>}
                       </td>
-                      <td>{product.type === "COMPOSITE" ? "ประกอบ" : "เดี่ยว"}</td>
+                      <td>
+                        <div>{getProductCategoryLabel(product.category) || "-"}</div>
+                        <small className="sub-text">{product.type === "COMPOSITE" ? "ประกอบ" : "เดี่ยว"}</small>
+                      </td>
                       <td>{product.warehouse?.name || "-"}</td>
                       <td>{product.stock}</td>
-                      <td>{product.price?.toLocaleString("th-TH", { style: "currency", currency: "THB" }) ?? "-"}</td>
+                      <td>
+                        <strong>{formatBaht(calcProductTotal(product.price, product.stock))}</strong>
+                        <small className="sub-text" title="ราคาต่อชิ้น">ราคา/ชิ้น {formatBaht(Number(product.price) || 0)}</small>
+                      </td>
                       <td className="table-actions" onClick={(e) => e.stopPropagation()}>
                         <button className="btn btn-small" type="button" onClick={() => openProductEdit(product)}>แก้ไข</button>
                         <button className="btn btn-small btn-danger" type="button" onClick={() => handleProductDelete(product.id, product.name)}>ลบ</button>
@@ -3598,6 +3662,7 @@ type Machine = {
   name: string;
   code: string;
   description?: string | null;
+  note?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -3642,8 +3707,8 @@ export function MachineView() {
   const [showMachineModal, setShowMachineModal] = useState(false);
   const [machineModalMode, setMachineModalMode] = useState<"add" | "edit">("add");
   const [machineModalTab, setMachineModalTab] = useState<"info" | "production" | "settings">("info");
-  const [editForm, setEditForm] = useState<{ name: string; code: string; description: string }>({
-    name: "", code: "", description: "",
+  const [editForm, setEditForm] = useState<{ name: string; code: string; description: string; note: string }>({
+    name: "", code: "", description: "", note: "",
   });
   const [addMachineId, setAddMachineId] = useState<string | null>(null);
 
@@ -3698,7 +3763,8 @@ export function MachineView() {
     () => machines.filter((m) =>
       m.name.toLowerCase().includes(search.toLowerCase()) ||
       m.code.toLowerCase().includes(search.toLowerCase()) ||
-      (m.description ?? "").toLowerCase().includes(search.toLowerCase())
+      (m.description ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (m.note ?? "").toLowerCase().includes(search.toLowerCase())
     ),
     [machines, search]
   );
@@ -3723,7 +3789,7 @@ export function MachineView() {
   function handleAddMachine() {
     setSelectedMachine(null);
     setAddMachineId(null);
-    setEditForm({ name: "", code: "", description: "" });
+    setEditForm({ name: "", code: "", description: "", note: "" });
     setMachineModalMode("add");
     setMachineModalTab("info");
     setShowMachineModal(true);
@@ -3737,6 +3803,7 @@ export function MachineView() {
       name: machine.name,
       code: machine.code,
       description: machine.description ?? "",
+      note: machine.note ?? "",
     });
     setMachineModalMode("edit");
     setMachineModalTab("info");
@@ -3745,7 +3812,7 @@ export function MachineView() {
 
   function closeModal() {
     setShowMachineModal(false);
-    setEditForm({ name: "", code: "", description: "" });
+    setEditForm({ name: "", code: "", description: "", note: "" });
     setAddMachineId(null);
   }
 
@@ -3758,6 +3825,7 @@ export function MachineView() {
       name: editForm.name.trim(),
       code: editForm.code.trim(),
       description: editForm.description.trim() || null,
+      note: editForm.note.trim() || null,
     };
 
     const isAdd = machineModalMode === "add";
@@ -3788,14 +3856,14 @@ export function MachineView() {
         const newMachine = (Array.isArray(updated) ? updated : machines).find((m: Machine) => m.id === result.id);
         if (newMachine) setSelectedMachine(newMachine);
         setMachineModalTab("production");
-        setEditForm({ name: "", code: "", description: "" });
+        setEditForm({ name: "", code: "", description: "", note: "" });
       } else {
         showMsg("แก้ไขเครื่องจักรเรียบร้อยแล้ว");
         const updated = await fetch("/api/machines").then(r => r.json()).catch(() => machines);
         const updatedMachine = (Array.isArray(updated) ? updated : machines).find((m: Machine) => m.id === id);
         if (updatedMachine) setSelectedMachine(updatedMachine);
         setMachineModalTab("production");
-        setEditForm({ name: "", code: "", description: "" });
+        setEditForm({ name: "", code: "", description: "", note: "" });
       }
     } catch (e) {
       console.error(e);
@@ -3956,6 +4024,22 @@ export function MachineView() {
                         }}
                       />
                     </div>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: 14, color: "#374151", marginBottom: 6 }}>
+                        หมายเหตุ (ถ้ามี)
+                      </label>
+                      <textarea
+                        value={editForm.note}
+                        onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
+                        placeholder="เช่น วันที่เข้าซ่อมบำรุง, อะไหล่ที่เปลี่ยน, ข้อควรระวังในการใช้งาน"
+                        rows={3}
+                        style={{
+                          width: "100%", padding: "10px 14px", border: "1.5px solid #d1d5db",
+                          borderRadius: 8, fontSize: 15, boxSizing: "border-box" as const, outline: "none",
+                          resize: "vertical", fontFamily: "inherit",
+                        }}
+                      />
+                    </div>
                   </div>
                   <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 28 }}>
                     <button
@@ -4041,6 +4125,18 @@ export function MachineView() {
               <button onClick={() => setShowMachineDetail(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#666", padding: "0 4px" }}>✕</button>
             </div>
           </div>
+          {(selectedMachine.description || selectedMachine.note) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {selectedMachine.description && (
+                <div style={{ fontSize: 13, color: "#4a5568" }}>📝 คำอธิบาย: {selectedMachine.description}</div>
+              )}
+              {selectedMachine.note && (
+                <div style={{ fontSize: 13, color: "#4a5568", whiteSpace: "pre-wrap", padding: 12, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                  <strong>หมายเหตุ:</strong> {selectedMachine.note}
+                </div>
+              )}
+            </div>
+          )}
           {/* Tab switcher */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16, background: "#f1f5f9", borderRadius: 10, padding: 4, width: "fit-content" }}>
             <button
@@ -4100,14 +4196,15 @@ export function MachineView() {
                 <th style={{ minWidth: 200 }}>ชื่อเครื่องจักร</th>
                 <th style={{ minWidth: 140 }}>รหัส</th>
                 <th style={{ minWidth: 250 }}>คำอธิบาย</th>
+                <th style={{ minWidth: 220 }}>หมายเหตุ</th>
                 <th style={{ minWidth: 120 }}>วันที่สร้าง</th>
                 <th style={{ minWidth: 140 }}>จัดการ</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={5} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
+              {loading && <tr><td colSpan={6} className="text-center">กำลังโหลดข้อมูล...</td></tr>}
               {!loading && filteredMachines.length === 0 && (
-                <tr><td colSpan={5} className="text-center">{search ? "ไม่พบเครื่องจักรที่ค้นหา" : "ยังไม่มีเครื่องจักรในระบบ"}</td></tr>
+                <tr><td colSpan={6} className="text-center">{search ? "ไม่พบเครื่องจักรที่ค้นหา" : "ยังไม่มีเครื่องจักรในระบบ"}</td></tr>
               )}
               {!loading && filteredMachines.map((machine) => (
                 /* ── Read-only row ── */
@@ -4124,6 +4221,11 @@ export function MachineView() {
                   <td style={{ maxWidth: 250 }}>
                     {machine.description
                       ? <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{machine.description}</span>
+                      : <span className="text-muted">-</span>}
+                  </td>
+                  <td style={{ maxWidth: 250 }}>
+                    {machine.note
+                      ? <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", whiteSpace: "pre-wrap" }}>{machine.note}</span>
                       : <span className="text-muted">-</span>}
                   </td>
                   <td>{machine.createdAt ? new Date(machine.createdAt).toLocaleDateString("th-TH") : "-"}</td>

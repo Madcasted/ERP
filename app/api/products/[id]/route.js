@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import QRCode from "qrcode";
 
+const PRODUCT_CATEGORIES = ["PARTITION", "TRAY", "BOX_PP", "BOX_TP", "PAPER_BOX", "WOOD_CORNER"];
+
+function normalizeCategory(category) {
+  return PRODUCT_CATEGORIES.includes(category) ? category : null;
+}
+
 export async function GET(request, { params }) {
   try {
     const product = await prisma.product.findUnique({
@@ -33,6 +39,8 @@ export async function PUT(request, { params }) {
       name: body.name,
       sku: body.sku,
       type: body.type,
+      category: normalizeCategory(body.category),
+      customerCompany: body.customerCompany || null,
       price: Number(body.price) || 0,
       stock: Number(body.stock) || 0,
       description: body.description || "",

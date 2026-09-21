@@ -31,13 +31,15 @@ model Customer {
 }
 
 model Product {
-  id          String            @id @default(uuid())
-  name        String
-  sku         String            @unique
-  type        ProductType       @default(SINGLE)
-  price       Float?
-  stock       Int               @default(0)
-  description String?
+  id              String            @id @default(uuid())
+  name            String
+  sku             String            @unique
+  type            ProductType       @default(SINGLE)
+  category        ProductCategory?
+  customerCompany String?
+  price           Float?
+  stock           Int               @default(0)
+  description     String?
   details     String?
   image       String?
   qrCode      String?
@@ -212,6 +214,15 @@ enum ProductType {
   COMPOSITE
 }
 
+enum ProductCategory {
+  PARTITION
+  TRAY
+  BOX_PP
+  BOX_TP
+  PAPER_BOX
+  WOOD_CORNER
+}
+
 enum OrderStatus {
   PENDING
   CONFIRMED
@@ -224,6 +235,7 @@ model Machine {
   name        String
   code        String          @unique
   description String?
+  note        String?
   logs        MachineLog[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt

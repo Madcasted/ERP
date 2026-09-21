@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 export async function GET() {
   try {
     const machines = await prisma.$queryRaw`
-      SELECT "id", "name", "code", "description", "createdAt", "updatedAt"
+      SELECT "id", "name", "code", "description", "note", "createdAt", "updatedAt"
       FROM "Machine"
       ORDER BY "name" ASC
     `;
@@ -23,16 +23,17 @@ export async function POST(request) {
     const now = new Date();
 
     const [machine] = await prisma.$queryRaw`
-      INSERT INTO "Machine" ("id", "name", "code", "description", "createdAt", "updatedAt")
+      INSERT INTO "Machine" ("id", "name", "code", "description", "note", "createdAt", "updatedAt")
       VALUES (
         ${id},
         ${body.name},
         ${body.code || body.name.replace(/\s+/g, '-').toLowerCase() + '-' + id.slice(0, 6)},
         ${body.description || null},
+        ${body.note || null},
         ${now},
         ${now}
       )
-      RETURNING "id", "name", "code", "description", "createdAt", "updatedAt"
+      RETURNING "id", "name", "code", "description", "note", "createdAt", "updatedAt"
     `;
 
     return NextResponse.json(machine, { status: 201 });

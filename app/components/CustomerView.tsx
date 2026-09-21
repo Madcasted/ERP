@@ -35,6 +35,8 @@ type ManHourJob = {
   targetHours: number;
   status: "active" | "done";
   createdAt: string;
+  // วัสดุที่ใช้ในการประกอบงาน (คำนวณค่าวัสดุได้)
+  materials?: ManHourMaterialLine[];
 };
 
 type ManHourLog = {
@@ -49,6 +51,90 @@ type ManHourLog = {
   note: string;
   createdAt: string;
 };
+
+type ManHourMaterialLine = {
+  id: string;
+  name: string;
+  unit: string;        // หน่วยซื้อ เช่น ม้วน / แผ่น / เส้น / กก.
+  unitPrice: number;   // ราคาต่อ 1 หน่วยซื้อ
+  convertQty: number;  // 1 หน่วยซื้อ = convertQty หน่วยย่อย (0 หรือ 1 = ไม่แปลงหน่วย)
+  convertUnit: string; // หน่วยย่อย เช่น กรัม / เส้น / ชิ้น
+  usedQty: number;     // ปริมาณที่ใช้ไป (นับในหน่วยย่อย ถ้ามีตัวแปลง)
+  note: string;
+};
+
+type MaterialOption = {
+  id: string;
+  name: string;
+  unit?: string | null;
+  unitPrice: number;
+};
+
+const materialUnitOptions = ["ม้วน", "แผ่น", "เส้น", "กก.", "กรัม", "ชิ้น", "เมตร", "ลิตร"];
+
+function createMaterialLine(): ManHourMaterialLine {
+  return {
+    id: `MHM${Date.now()}${Math.random().toString(16).slice(2, 6)}`,
+    name: "",
+    unit: "ม้วน",
+    unitPrice: 0,
+    convertQty: 1000,
+    convertUnit: "กรัม",
+    usedQty: 0,
+    note: "",
+  };
+}
+
+function materialLineFactor(line: ManHourMaterialLine) {
+  const factor = Number(line.convertQty) || 0;
+  return factor > 0 ? factor : 1;
+}
+
+// ปริมาณที่ใช้ แปลงกลับเป็นหน่วยซื้อ เช่น ใช้ 0.5 กรัม และ 1 ม้วน = 1000 กรัม → 0.0005 ม้วน
+function calcMaterialLineQtyInUnits(line: ManHourMaterialLine) {
+  return (Number(line.usedQty) || 0) / materialLineFactor(line);
+}
+
+// ค่าวัสดุ 1 บรรทัด = ราคาต่อหน่วยซื้อ × (ปริมาณที่ใช้ ÷ ตัวแปลงหน่วย)
+function calcMaterialLineCost(line: ManHourMaterialLine) {
+  return (Number(line.unitPrice) || 0) * calcMaterialLineQtyInUnits(line);
+}
+
+function calcJobMaterialCost(job: ManHourJob) {
+  return (job.materials ?? []).reduce((sum, line) => sum + calcMaterialLineCost(line), 0);
+}
+
+function describeMaterialLineUsage(line: ManHourMaterialLine) {
+  const factor = materialLineFactor(line);
+  const used = Number(line.usedQty) || 0;
+  if (factor === 1) {
+    return `${used.toLocaleString("th-TH")} ${line.unit || "หน่วย"}`;
+  }
+  const converted = calcMaterialLineQtyInUnits(line).toLocaleString("th-TH", { maximumFractionDigits: 6 });
+  return `${used.toLocaleString("th-TH")} ${line.convertUnit || "หน่วยย่อย"} (= ${converted} ${line.unit || "หน่วย"})`;
+}
+
+function describeMaterialLine(line: ManHourMaterialLine) {
+  const factor = materialLineFactor(line);
+  const parts = [`${(Number(line.unitPrice) || 0).toLocaleString("th-TH")} บาท/${line.unit || "หน่วย"}`];
+  if (factor !== 1) {
+    parts.push(`1 ${line.unit || "หน่วย"} = ${factor.toLocaleString("th-TH")} ${line.convertUnit || "หน่วยย่อย"}`);
+  }
+  parts.push(`ใช้ไป ${describeMaterialLineUsage(line)}`);
+  parts.push(`→ ${formatBaht(calcMaterialLineCost(line))}`);
+  return parts.join(" · ");
+}
+
+function formatBaht(value: number) {
+  // ค่าวัสดุต่อชิ้นอาจน้อยกว่า 1 บาท → แสดงทศนิยมเพิ่มเพื่อไม่ให้ปัดจนดูเป็น 0
+  const isTiny = Math.abs(value) > 0 && Math.abs(value) < 1;
+  return value.toLocaleString("th-TH", {
+    style: "currency",
+    currency: "THB",
+    minimumFractionDigits: isTiny ? 3 : 2,
+    maximumFractionDigits: isTiny ? 4 : 2,
+  });
+}
 
 const customerRoleOptions = [
   { value: "EMPLOYEE", label: "พนักงาน" },
@@ -212,6 +298,125 @@ function DeleteConfirmModal({
   );
 }
 
+// ─── Material Lines Editor (วัสดุที่ใช้ในการประกอบงาน) ────────────────────────
+
+function MaterialLinesEditor({
+  lines,
+  onChange,
+  catalog,
+}: {
+  lines: ManHourMaterialLine[];
+  onChange: (next: ManHourMaterialLine[]) => void;
+  catalog: MaterialOption[];
+}) {
+  const listId = React.useId();
+  const total = lines.reduce((sum, line) => sum + calcMaterialLineCost(line), 0);
+
+  function updateLine(id: string, patch: Partial<ManHourMaterialLine>) {
+    onChange(lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  // เลือกชื่อวัสดุตรงกับในคลังวัสดุ → เติมราคา/หน่วยให้อัตโนมัติ
+  function handleNameChange(id: string, value: string) {
+    const matched = catalog.find((item) => item.name === value);
+    updateLine(
+      id,
+      matched
+        ? { name: value, unit: matched.unit || "ชิ้น", unitPrice: Number(matched.unitPrice) || 0 }
+        : { name: value },
+    );
+  }
+
+  return (
+    <div style={{ border: "1px solid #e6e9f0", borderRadius: 16, padding: 12, background: "#f8fbf9" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>🧱 วัสดุที่ใช้ในการประกอบงาน</div>
+          <div className="sub-text" style={{ marginTop: 2 }}>
+            ใส่ราคาต่อหน่วยซื้อ + ตัวแปลงหน่วย แล้วกรอกปริมาณที่ใช้ ระบบจะคำนวณค่าวัสดุให้
+          </div>
+        </div>
+        <button type="button" className="btn btn-small" onClick={() => onChange([...lines, createMaterialLine()])}>+ เพิ่มวัสดุ</button>
+      </div>
+
+      {lines.length === 0 && (
+        <div className="sub-text" style={{ padding: "10px 12px", borderRadius: 12, background: "white", border: "1px dashed #d7e3db" }}>
+          ยังไม่ได้เพิ่มวัสดุ — ตัวอย่าง: ไส้ปริ้น 3D 490 บาท/ม้วน (1 ม้วน = 1000 กรัม) ใช้ไป 0.5 กรัม = 0.245 บาท
+        </div>
+      )}
+
+      {lines.map((line, index) => (
+        <div key={line.id} style={{ border: "1px solid #e6e9f0", borderRadius: 14, padding: 10, background: "white", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>วัสดุ #{index + 1}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontWeight: 800, color: "var(--green)" }}>{formatBaht(calcMaterialLineCost(line))}</span>
+              <button type="button" className="btn btn-small btn-danger" onClick={() => onChange(lines.filter((item) => item.id !== line.id))}>ลบ</button>
+            </span>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>วัสดุ</label>
+              <input
+                list={listId}
+                value={line.name}
+                onChange={(e) => handleNameChange(line.id, e.target.value)}
+                placeholder="เช่น ไส้ปริ้น 3D / EVA 10 มิล"
+              />
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>ราคา/หน่วยซื้อ</label>
+              <input type="number" min={0} step="0.01" value={line.unitPrice} onChange={(e) => updateLine(line.id, { unitPrice: Number(e.target.value) })} />
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>หน่วยซื้อ</label>
+              <select value={line.unit} onChange={(e) => updateLine(line.id, { unit: e.target.value })}>
+                {materialUnitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+              </select>
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>1 {line.unit || "หน่วย"} เท่ากับ</label>
+              <input type="number" min={0} step="0.01" value={line.convertQty} onChange={(e) => updateLine(line.id, { convertQty: Number(e.target.value) })} />
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>หน่วยย่อย</label>
+              <select value={line.convertUnit} onChange={(e) => updateLine(line.id, { convertUnit: e.target.value })}>
+                {materialUnitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+              </select>
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>ใช้ไป ({line.convertUnit || line.unit || "หน่วย"})</label>
+              <input type="number" min={0} step="0.01" value={line.usedQty} onChange={(e) => updateLine(line.id, { usedQty: Number(e.target.value) })} />
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>หมายเหตุ</label>
+              <input value={line.note} onChange={(e) => updateLine(line.id, { note: e.target.value })} placeholder="เช่น ตัดทิ้ง / สูญเสีย" />
+            </div>
+          </div>
+
+          <div className="sub-text" style={{ marginTop: 8 }}>{describeMaterialLine(line)}</div>
+        </div>
+      ))}
+
+      <datalist id={listId}>
+        {catalog.map((item) => (
+          <option key={item.id} value={item.name}>
+            {`${item.unit || "หน่วย"} · ${(Number(item.unitPrice) || 0).toLocaleString("th-TH")} บาท`}
+          </option>
+        ))}
+      </datalist>
+
+      {lines.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10 }}>
+          <span className="sub-text">ค่าวัสดุรวมงานนี้</span>
+          <span style={{ fontWeight: 800, color: "var(--green)" }}>{formatBaht(total)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Man Hour Panel ────────────────────────────────────────────────────────────
 
 function ManHourPanel({ customers }: { customers: Customer[] }) {
@@ -234,10 +439,25 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
   });
   const [memberSearch, setMemberSearch] = useState("");
   const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
+  const [materialLines, setMaterialLines] = useState<ManHourMaterialLine[]>([]);
+  const [materialCatalog, setMaterialCatalog] = useState<MaterialOption[]>([]);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [editingMaterialsJobId, setEditingMaterialsJobId] = useState<string | null>(null);
+  const [editMaterialLines, setEditMaterialLines] = useState<ManHourMaterialLine[]>([]);
 
   useEffect(() => {
     setJobs(readLocalArray<ManHourJob>("customer_manhour_jobs", []));
     setLogs(readLocalArray<ManHourLog>("customer_manhour_logs", []));
+  }, []);
+
+  // คลังวัสดุ ใช้ช่วยเติมราคา/หน่วยให้อัตโนมัติ (ถ้าโหลดไม่ได้ก็พิมพ์เองได้)
+  useEffect(() => {
+    let active = true;
+    fetch("/api/materials")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => { if (active) setMaterialCatalog(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    return () => { active = false; };
   }, []);
 
   const activeMembers = customers.filter((customer) => customer.role !== "INACTIVE");
@@ -258,6 +478,8 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
     .filter((log) => log.date === today)
     .reduce((sum, log) => sum + log.regularHours + log.overtimeHours, 0);
   const overtimeHours = logs.reduce((sum, log) => sum + log.overtimeHours, 0);
+  const totalMaterialCost = jobs.reduce((sum, job) => sum + calcJobMaterialCost(job), 0);
+  const materialJobCount = jobs.filter((job) => (job.materials ?? []).length > 0).length;
 
   const hoursByMember = activeMembers
     .map((member) => {
@@ -301,9 +523,23 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
       targetHours: Math.max(1, Number(jobForm.targetHours) || 1),
       status: "active",
       createdAt: today,
+      materials: materialLines.filter((line) => line.name.trim() || Number(line.usedQty) > 0),
     };
     saveJobs([nextJob, ...jobs]);
     setJobForm({ name: "", orderNumber: "", ownerRole: "EMPLOYEE", targetHours: 40 });
+    setMaterialLines([]);
+  }
+
+  function startEditJobMaterials(job: ManHourJob) {
+    setExpandedJobId(job.id);
+    setEditingMaterialsJobId(job.id);
+    setEditMaterialLines((job.materials ?? []).map((line) => ({ ...line })));
+  }
+
+  function saveJobMaterials(jobId: string, lines: ManHourMaterialLine[]) {
+    saveJobs(jobs.map((job) => (job.id === jobId ? { ...job, materials: lines } : job)));
+    setEditingMaterialsJobId(null);
+    setEditMaterialLines([]);
   }
 
   function addLog(event: React.FormEvent<HTMLFormElement>) {
@@ -348,6 +584,10 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
         <li>
           <i className="bx bxs-bar-chart-alt-2" style={{ background: "#E8F1FF", color: "#2563eb" }}></i>
           <span className="text"><h3>{Math.round(totalHours * 10) / 10}</h3><p>ชั่วโมงรวมทั้งหมด</p></span>
+        </li>
+        <li>
+          <i className="bx bxs-flask" style={{ background: "#FFF4E5", color: "#D97706" }}></i>
+          <span className="text"><h3>{formatBaht(totalMaterialCost)}</h3><p>ค่าวัสดุรวม ({materialJobCount} งาน)</p></span>
         </li>
       </ul>
 
@@ -569,29 +809,33 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
             <div className="section-header">
               <div>
                 <h3>เพิ่มงาน</h3>
-                <p className="sub-text" style={{ marginTop: 4 }}>สร้างงานก่อน แล้วนำไปเลือกตอนบันทึกเวลา</p>
+                <p className="sub-text" style={{ marginTop: 4 }}>สร้างงานก่อน แล้วนำไปเลือกตอนบันทึกเวลา · ระบุวัสดุที่ใช้เพื่อคำนวณค่าวัสดุ</p>
               </div>
             </div>
-            <form onSubmit={addJob} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "end" }}>
-              <div className="field-group" style={{ marginBottom: 0 }}>
-                <label>ชื่องาน</label>
-                <input value={jobForm.name} onChange={(e) => setJobForm({ ...jobForm, name: e.target.value })} placeholder="เช่น ผลิต Tray รุ่น A" />
+            <form onSubmit={addJob} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "end" }}>
+                <div className="field-group" style={{ marginBottom: 0 }}>
+                  <label>ชื่องาน</label>
+                  <input value={jobForm.name} onChange={(e) => setJobForm({ ...jobForm, name: e.target.value })} placeholder="เช่น ผลิต Tray รุ่น A" />
+                </div>
+                <div className="field-group" style={{ marginBottom: 0 }}>
+                  <label>เลขออเดอร์</label>
+                  <input value={jobForm.orderNumber} onChange={(e) => setJobForm({ ...jobForm, orderNumber: e.target.value })} placeholder="ORD-001" />
+                </div>
+                <div className="field-group" style={{ marginBottom: 0 }}>
+                  <label>กลุ่มงาน</label>
+                  <select value={jobForm.ownerRole} onChange={(e) => setJobForm({ ...jobForm, ownerRole: e.target.value })}>
+                    {customerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <div className="field-group" style={{ marginBottom: 0 }}>
+                  <label>เป้าหมาย</label>
+                  <input type="number" min={1} value={jobForm.targetHours} onChange={(e) => setJobForm({ ...jobForm, targetHours: Number(e.target.value) })} />
+                </div>
+                <button className="btn" type="submit" style={{ minHeight: 45 }}>เพิ่มงาน</button>
               </div>
-              <div className="field-group" style={{ marginBottom: 0 }}>
-                <label>เลขออเดอร์</label>
-                <input value={jobForm.orderNumber} onChange={(e) => setJobForm({ ...jobForm, orderNumber: e.target.value })} placeholder="ORD-001" />
-              </div>
-              <div className="field-group" style={{ marginBottom: 0 }}>
-                <label>กลุ่มงาน</label>
-                <select value={jobForm.ownerRole} onChange={(e) => setJobForm({ ...jobForm, ownerRole: e.target.value })}>
-                  {customerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </div>
-              <div className="field-group" style={{ marginBottom: 0 }}>
-                <label>เป้าหมาย</label>
-                <input type="number" min={1} value={jobForm.targetHours} onChange={(e) => setJobForm({ ...jobForm, targetHours: Number(e.target.value) })} />
-              </div>
-              <button className="btn" type="submit" style={{ minHeight: 45 }}>เพิ่มงาน</button>
+
+              <MaterialLinesEditor lines={materialLines} onChange={setMaterialLines} catalog={materialCatalog} />
             </form>
           </div>
 
@@ -627,19 +871,46 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
           </div>
 
           <div className="card" style={{ background: "#fff" }}>
-            <div className="section-header"><h3>งานทั้งหมด ({jobs.length})</h3></div>
+            <div className="section-header">
+              <h3>งานทั้งหมด ({jobs.length})</h3>
+              <span className="sub-text">ค่าวัสดุรวมทุกงาน {formatBaht(totalMaterialCost)}</span>
+            </div>
             <div className="table-responsive">
               <table>
-                <thead><tr><th>งาน</th><th>ออเดอร์</th><th>เป้าหมาย</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+                <thead><tr><th>งาน</th><th>ออเดอร์</th><th>เป้าหมาย</th><th>ค่าวัสดุ</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
                 <tbody>
-                  {jobs.length === 0 && <tr><td colSpan={5} className="text-center">ยังไม่มีงาน</td></tr>}
-                  {jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td>{job.name}</td>
-                      <td>{job.orderNumber || "-"}</td>
-                      <td>{job.targetHours} ชม.</td>
-                      <td>
-                        <span style={{
+                  {jobs.length === 0 && <tr><td colSpan={6} className="text-center">ยังไม่มีงาน</td></tr>}
+                  {jobs.map((job) => {
+                    const jobMaterials = job.materials ?? [];
+                    const jobCost = calcJobMaterialCost(job);
+                    const expanded = expandedJobId === job.id;
+                    const editing = editingMaterialsJobId === job.id;
+                    return (
+                      <React.Fragment key={job.id}>
+                        <tr>
+                          <td>{job.name}</td>
+                          <td>{job.orderNumber || "-"}</td>
+                          <td>{job.targetHours} ชม.</td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedJobId(expanded ? null : job.id)}
+                              style={{
+                                border: "none",
+                                background: jobMaterials.length > 0 ? "#EDF8F1" : "transparent",
+                                color: jobMaterials.length > 0 ? "#225D3D" : "#718096",
+                                borderRadius: 999,
+                                padding: jobMaterials.length > 0 ? "6px 12px" : 0,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                textAlign: "left",
+                              }}
+                            >
+                              {jobMaterials.length > 0 ? `${formatBaht(jobCost)} (${jobMaterials.length} รายการ)` : "ยังไม่ระบุ -"}
+                            </button>
+                          </td>
+                          <td>
+                            <span style={{
                           display: "inline-flex",
                           alignItems: "center",
                           padding: "6px 12px",
@@ -649,12 +920,63 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                           background: job.status === "done" ? "#EDF8F1" : "#FFF2C6",
                           color: job.status === "done" ? "#225D3D" : "#8A5B00",
                         }}>
-                          {job.status === "done" ? "เสร็จแล้ว" : "กำลังทำ"}
-                        </span>
-                      </td>
-                      <td>{job.status === "active" && <button className="btn btn-small" type="button" onClick={() => closeJob(job.id)}>ปิดงาน</button>}</td>
-                    </tr>
-                  ))}
+                              {job.status === "done" ? "เสร็จแล้ว" : "กำลังทำ"}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              <button className="btn btn-small" type="button" onClick={() => startEditJobMaterials(job)}>🧱 วัสดุ</button>
+                              {job.status === "active" && <button className="btn btn-small" type="button" onClick={() => closeJob(job.id)}>ปิดงาน</button>}
+                            </div>
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr>
+                            <td colSpan={6} style={{ background: "#f8fbf9" }}>
+                              {editing ? (
+                                <div>
+                                  <MaterialLinesEditor lines={editMaterialLines} onChange={setEditMaterialLines} catalog={materialCatalog} />
+                                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                                    <button className="btn btn-small" type="button" onClick={() => saveJobMaterials(job.id, editMaterialLines)}>บันทึกวัสดุ</button>
+                                    <button className="btn btn-small btn-secondary" type="button" onClick={() => { setEditingMaterialsJobId(null); setEditMaterialLines([]); }}>ยกเลิก</button>
+                                  </div>
+                                </div>
+                              ) : jobMaterials.length === 0 ? (
+                                <div className="sub-text" style={{ padding: "8px 4px" }}>ยังไม่ได้บันทึกวัสดุของงานนี้</div>
+                              ) : (
+                                <table style={{ margin: 0, background: "#fff" }}>
+                                  <thead><tr><th>วัสดุ</th><th>ราคา/หน่วยซื้อ</th><th>ใช้ไป</th><th>ค่าวัสดุ</th></tr></thead>
+                                  <tbody>
+                                    {jobMaterials.map((line) => (
+                                      <tr key={line.id}>
+                                        <td>
+                                          {line.name || "-"}
+                                          {line.note ? <div className="sub-text">📝 {line.note}</div> : null}
+                                        </td>
+                                        <td>{formatBaht(Number(line.unitPrice) || 0)} / {line.unit || "หน่วย"}</td>
+                                        <td>{describeMaterialLineUsage(line)}</td>
+                                        <td><strong>{formatBaht(calcMaterialLineCost(line))}</strong></td>
+                                      </tr>
+                                    ))}
+                                    <tr>
+                                      <td colSpan={3} style={{ textAlign: "right", fontWeight: 700 }}>ค่าวัสดุรวม</td>
+                                      <td style={{ fontWeight: 800, color: "var(--green)" }}>{formatBaht(jobCost)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              )}
+                              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                                {!editing && (
+                                  <button className="btn btn-small" type="button" onClick={() => startEditJobMaterials(job)}>✏️ แก้ไขวัสดุ</button>
+                                )}
+                                <button className="btn btn-small btn-secondary" type="button" onClick={() => setExpandedJobId(null)}>ปิด</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
