@@ -13,6 +13,12 @@ function intervalToTrunc(unit) {
   }
 }
 
+const PRODUCT_CATEGORIES = ["PARTITION", "TRAY", "BOX_PP", "BOX_TP", "PAPER_BOX", "WOOD_CORNER"];
+
+function normalizeCategory(category) {
+  return PRODUCT_CATEGORIES.includes(category) ? category : null;
+}
+
 export async function GET(request) {
   try {
     const url = new URL(request.url);
@@ -85,6 +91,8 @@ export async function POST(request) {
         labelLots: Array.isArray(body.labelLots) ? body.labelLots : [],
         printCount: Number(body.printCount) || 1,
         type: body.type || "SINGLE",
+        category: normalizeCategory(body.category),
+        customerCompany: body.customerCompany || null,
         price: Number(body.price) || 0,
         stock: Number(body.stock) || 0,
         description: body.description || "",
