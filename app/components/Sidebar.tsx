@@ -11,6 +11,7 @@ const navItems = [
   { id: "customer", label: "สมาชิก", icon: "bx bxs-user-detail" },
   { id: "transaction", label: "คลังสต็อก", icon: "bx bx-transfer-alt" },
   { id: "production", label: "การผลิต", icon: "bx bxs-factory" },
+  { id: "print3d", label: "พิมพ์ 3D", icon: "bx bx-cube" },
   { id: "machine", label: "เครื่องจักร", icon: "bx bxs-cog" },
   { id: "report", label: "รายงาน", icon: "bx bxs-bar-chart-alt-2" },
   { id: "settings", label: "ตั้งค่าระบบ", icon: "bx bx-cog" },

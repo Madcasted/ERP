@@ -9,6 +9,7 @@ import { InventoryView, MachineView, ProductionView, ReportView, SystemView, Tra
 import DashboardCharts from "./DashboardCharts";
 import { SettingsProvider, useSettings } from "./SettingsContext";
 import { SettingsPanel } from "./SettingsPanel";
+import { Filament3DView } from "./Filament3DView";
 
 type Product = any;
 type MaterialReceiving = any;
@@ -30,6 +31,7 @@ const sectionTitle: Record<string, string> = {
   customer: "ลูกค้า",
   transaction: "ธุรกรรม",
   production: "การผลิต",
+  print3d: "พิมพ์ 3D",
   machine: "เครื่องจักร",
   report: "รายงาน",
   system: "ระบบ",
@@ -640,6 +642,7 @@ function DashboardShellInner({
           {selected === "customer" && <CustomerView />}
           {selected === "transaction" && <TransactionView />}
           {selected === "production" && <ProductionView />}
+          {selected === "print3d" && <Filament3DView />}
           {selected === "machine" && <MachineView />}
           {selected === "report" && <ReportView />}
           {selected === "system" && <SystemView />}
