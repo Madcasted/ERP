@@ -14,9 +14,41 @@ model User {
   password  String   // เพิ่มบรรทัดนี้
   image     String?
   role      UserRole @default(EMPLOYEE)
+  filamentUsages FilamentUsage[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model FilamentSpool {
+  id                    String          @id @default(uuid())
+  name                  String
+  brand                 String?
+  color                 String
+  supplier              String
+  initialWeightGrams    Float
+  remainingWeightGrams  Float
+  purchaseDate          DateTime        @default(now())
+  usages                FilamentUsage[]
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+}
+
+model FilamentUsage {
+  id          String        @id @default(uuid())
+  spool       FilamentSpool @relation(fields: [spoolId], references: [id], onDelete: Cascade)
+  spoolId     String
+  printJob    String
+  amountGrams Float
+  usedBy      String
+  user        User          @relation(fields: [userId], references: [id])
+  userId      String
+  usedAt      DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+
+  @@index([spoolId])
+  @@index([usedAt])
+}
+
 model Customer {
   id        String   @id @default(uuid())
   name      String
