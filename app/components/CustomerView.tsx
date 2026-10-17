@@ -60,6 +60,7 @@ type ManHourMaterialLine = {
   convertQty: number;  // 1 หน่วยซื้อ = convertQty หน่วยย่อย (0 หรือ 1 = ไม่แปลงหน่วย)
   convertUnit: string; // หน่วยย่อย เช่น กรัม / เส้น / ชิ้น
   usedQty: number;     // ปริมาณที่ใช้ไป (นับในหน่วยย่อย ถ้ามีตัวแปลง)
+  wastedQty?: number;
   note: string;
 };
 
@@ -351,7 +352,17 @@ function MaterialLinesEditor({
             <span style={{ fontWeight: 700, fontSize: 13 }}>วัสดุ #{index + 1}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontWeight: 800, color: "var(--green)" }}>{formatBaht(calcMaterialLineCost(line))}</span>
-              <button type="button" className="btn btn-small btn-danger" onClick={() => onChange(lines.filter((item) => item.id !== line.id))}>ลบ</button>
+              <button
+                type="button"
+                className="btn btn-small btn-danger"
+                onClick={() => {
+                  if (window.confirm(`ยืนยันลบวัสดุ${line.name ? ` "${line.name}"` : ` #${index + 1}`}?`)) {
+                    onChange(lines.filter((item) => item.id !== line.id));
+                  }
+                }}
+              >
+                ลบ
+              </button>
             </span>
           </div>
 
@@ -390,6 +401,10 @@ function MaterialLinesEditor({
               <input type="number" min={0} step="0.01" value={line.usedQty} onChange={(e) => updateLine(line.id, { usedQty: Number(e.target.value) })} />
             </div>
             <div className="field-group" style={{ marginBottom: 0 }}>
+              <label>เสีย / สูญเสีย ({line.convertUnit || line.unit || "หน่วย"})</label>
+              <input type="number" min={0} step="0.01" value={Number(line.wastedQty) || 0} onChange={(e) => updateLine(line.id, { wastedQty: Number(e.target.value) })} />
+            </div>
+            <div className="field-group" style={{ marginBottom: 0 }}>
               <label>หมายเหตุ</label>
               <input value={line.note} onChange={(e) => updateLine(line.id, { note: e.target.value })} placeholder="เช่น ตัดทิ้ง / สูญเสีย" />
             </div>
@@ -423,12 +438,6 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
   const today = new Date().toISOString().slice(0, 10);
   const [jobs, setJobs] = useState<ManHourJob[]>([]);
   const [logs, setLogs] = useState<ManHourLog[]>([]);
-  const [jobForm, setJobForm] = useState({
-    name: "",
-    orderNumber: "",
-    ownerRole: "EMPLOYEE",
-    targetHours: 40,
-  });
   const [logForm, setLogForm] = useState({
     customerId: "",
     jobId: "",
@@ -437,12 +446,21 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
     checkOut: "17:00",
     note: "",
   });
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [logModalOpen, setLogModalOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
-  const [materialLines, setMaterialLines] = useState<ManHourMaterialLine[]>([]);
   const [materialCatalog, setMaterialCatalog] = useState<MaterialOption[]>([]);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
-  const [editingMaterialsJobId, setEditingMaterialsJobId] = useState<string | null>(null);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [jobModalOpen, setJobModalOpen] = useState(false);
+  const [editJobForm, setEditJobForm] = useState({
+    name: "",
+    orderNumber: "",
+    ownerRole: "EMPLOYEE",
+    targetHours: 40,
+    status: "active" as "active" | "done",
+  });
   const [editMaterialLines, setEditMaterialLines] = useState<ManHourMaterialLine[]>([]);
 
   useEffect(() => {
@@ -461,9 +479,12 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
   }, []);
 
   const activeMembers = customers.filter((customer) => customer.role !== "INACTIVE");
+  const logMembers = editingLogId
+    ? [...activeMembers, ...customers.filter((customer) => customer.id === logForm.customerId && customer.role === "INACTIVE")]
+    : activeMembers;
   const activeJobs = jobs.filter((job) => job.status === "active");
   const logPreview = calcWorkHours(logForm.checkIn, logForm.checkOut);
-  const selectedMember = activeMembers.find((member) => member.id === logForm.customerId);
+  const selectedMember = logMembers.find((member) => member.id === logForm.customerId);
 
   const logsWithMeta = logs
     .map((log) => ({
@@ -492,7 +513,7 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
     .sort((a, b) => b.hours - a.hours);
 
   const memberHoursMap = new Map(hoursByMember.map((item) => [item.member.id, item]));
-  const filteredMembers = activeMembers.filter((member) => {
+  const filteredMembers = logMembers.filter((member) => {
     const keyword = memberSearch.trim().toLowerCase();
     if (!keyword) return true;
     return (
@@ -512,40 +533,61 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
     writeLocalArray("customer_manhour_logs", nextLogs);
   }
 
-  function addJob(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!jobForm.name.trim()) return;
-    const nextJob: ManHourJob = {
-      id: `MHJ${Date.now()}`,
-      name: jobForm.name.trim(),
-      orderNumber: jobForm.orderNumber.trim(),
-      ownerRole: jobForm.ownerRole,
-      targetHours: Math.max(1, Number(jobForm.targetHours) || 1),
-      status: "active",
-      createdAt: today,
-      materials: materialLines.filter((line) => line.name.trim() || Number(line.usedQty) > 0),
-    };
-    saveJobs([nextJob, ...jobs]);
-    setJobForm({ name: "", orderNumber: "", ownerRole: "EMPLOYEE", targetHours: 40 });
-    setMaterialLines([]);
+  function openNewJob() {
+    setEditingJobId(null);
+    setEditJobForm({ name: "", orderNumber: "", ownerRole: "EMPLOYEE", targetHours: 40, status: "active" });
+    setEditMaterialLines([]);
+    setJobModalOpen(true);
   }
 
-  function startEditJobMaterials(job: ManHourJob) {
-    setExpandedJobId(job.id);
-    setEditingMaterialsJobId(job.id);
+  function startEditJob(job: ManHourJob) {
+    setEditingJobId(job.id);
+    setEditJobForm({
+      name: job.name,
+      orderNumber: job.orderNumber,
+      ownerRole: job.ownerRole,
+      targetHours: job.targetHours,
+      status: job.status,
+    });
     setEditMaterialLines((job.materials ?? []).map((line) => ({ ...line })));
+    setJobModalOpen(true);
   }
 
-  function saveJobMaterials(jobId: string, lines: ManHourMaterialLine[]) {
-    saveJobs(jobs.map((job) => (job.id === jobId ? { ...job, materials: lines } : job)));
-    setEditingMaterialsJobId(null);
+  function saveEditedJob(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editJobForm.name.trim()) return;
+    const jobDetails = {
+      ...editJobForm,
+      name: editJobForm.name.trim(),
+      orderNumber: editJobForm.orderNumber.trim(),
+      targetHours: Math.max(1, Number(editJobForm.targetHours) || 1),
+      materials: editMaterialLines.filter((line) => line.name.trim() || Number(line.usedQty) > 0),
+    };
+    if (editingJobId) {
+      saveJobs(jobs.map((job) => job.id === editingJobId ? { ...job, ...jobDetails } : job));
+    } else {
+      saveJobs([{ ...jobDetails, id: `MHJ${Date.now()}`, createdAt: today }, ...jobs]);
+    }
+    setJobModalOpen(false);
+    setEditingJobId(null);
     setEditMaterialLines([]);
   }
 
-  function addLog(event: React.FormEvent<HTMLFormElement>) {
+  function saveLog(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!logForm.customerId || !logForm.jobId) return;
     const hours = calcWorkHours(logForm.checkIn, logForm.checkOut);
+    if (editingLogId) {
+      saveLogs(logs.map((log) => log.id === editingLogId ? {
+        ...log,
+        ...logForm,
+        regularHours: hours.regularHours,
+        overtimeHours: hours.overtimeHours,
+        note: logForm.note.trim(),
+      } : log));
+      cancelEditLog();
+      return;
+    }
     const nextLog: ManHourLog = {
       id: `MHL${Date.now()}`,
       ...logForm,
@@ -556,6 +598,58 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
     };
     saveLogs([nextLog, ...logs]);
     setLogForm({ customerId: "", jobId: "", date: today, checkIn: "08:00", checkOut: "17:00", note: "" });
+    setLogModalOpen(false);
+  }
+
+  function openNewLog() {
+    setEditingLogId(null);
+    setLogForm({ customerId: "", jobId: "", date: today, checkIn: "08:00", checkOut: "17:00", note: "" });
+    setLogModalOpen(true);
+  }
+
+  function startEditLog(log: ManHourLog) {
+    setEditingLogId(log.id);
+    setLogForm({
+      customerId: log.customerId,
+      jobId: log.jobId,
+      date: log.date,
+      checkIn: log.checkIn,
+      checkOut: log.checkOut,
+      note: log.note,
+    });
+    setMemberSearch("");
+    setMemberDropdownOpen(false);
+    setLogModalOpen(true);
+  }
+
+  function saveEditedLog(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingLogId || !logForm.customerId || !logForm.jobId) return;
+    const hours = calcWorkHours(logForm.checkIn, logForm.checkOut);
+    saveLogs(logs.map((log) => log.id === editingLogId ? {
+      ...log,
+      ...logForm,
+      regularHours: hours.regularHours,
+      overtimeHours: hours.overtimeHours,
+      note: logForm.note.trim(),
+    } : log));
+    cancelEditLog();
+  }
+
+  function cancelEditLog() {
+    setEditingLogId(null);
+    setLogModalOpen(false);
+    setLogForm({ customerId: "", jobId: "", date: today, checkIn: "08:00", checkOut: "17:00", note: "" });
+  }
+
+  function deleteJob(id: string) {
+    if (!window.confirm("ยืนยันลบงานนี้? ประวัติบันทึกเวลาที่เกี่ยวข้องจะยังคงอยู่")) return;
+    saveJobs(jobs.filter((job) => job.id !== id));
+    if (editingJobId === id) {
+      setJobModalOpen(false);
+      setEditingJobId(null);
+    }
+    if (expandedJobId === id) setExpandedJobId(null);
   }
 
   function closeJob(id: string) {
@@ -563,7 +657,9 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
   }
 
   function deleteLog(id: string) {
+    if (!window.confirm("ยืนยันลบบันทึกเวลานี้?")) return;
     saveLogs(logs.filter((log) => log.id !== id));
+    if (editingLogId === id) cancelEditLog();
   }
 
   return (
@@ -592,14 +688,19 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
       </ul>
 
       <div className="form-grid" style={{ gridTemplateColumns: "minmax(340px, 460px) minmax(0, 1fr)", alignItems: "start" }}>
-        <div className="card form-card" style={{ background: "linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%)", border: "1px solid #e4efe8" }}>
+        {logModalOpen ? (
+        <div onClick={(event) => { if (event.target === event.currentTarget) cancelEditLog(); }} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15, 23, 42, .55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div className="card form-card" role="dialog" aria-modal="true" aria-labelledby="manhour-log-modal-title" style={{ width: "min(680px, 100%)", maxHeight: "90vh", overflowY: "auto", background: "linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%)", border: "1px solid #e4efe8", boxShadow: "0 24px 80px rgba(15,23,42,.25)" }}>
           <div className="section-header">
             <div>
-              <h3>บันทึกเวลา</h3>
-              <p className="sub-text" style={{ marginTop: 4 }}>ค้นหาสมาชิกจาก dropdown แล้วกรอกงานกับช่วงเวลา</p>
+              <h3 id="manhour-log-modal-title">{editingLogId ? "แก้ไขบันทึกเวลา" : "เพิ่มบันทึกเวลา"}</h3>
+              <p className="sub-text" style={{ marginTop: 4 }}>
+                เลือกสมาชิก งาน วันที่ และช่วงเวลาที่ต้องการบันทึก
+              </p>
             </div>
+            <button className="btn btn-small btn-secondary" type="button" onClick={cancelEditLog} aria-label="ปิดหน้าต่าง">ปิด</button>
           </div>
-          <form onSubmit={addLog}>
+          <form onSubmit={saveLog}>
             <div className="field-group">
               <label>สมาชิก</label>
               <div style={{ position: "relative" }}>
@@ -763,7 +864,7 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
               <label>งาน / ออเดอร์</label>
               <select value={logForm.jobId} onChange={(e) => setLogForm({ ...logForm, jobId: e.target.value })}>
                 <option value="">เลือกงาน</option>
-                {activeJobs.map((job) => (
+                {jobs.filter((job) => job.status === "active" || (editingLogId && job.id === logForm.jobId)).map((job) => (
                   <option key={job.id} value={job.id}>{job.name}</option>
                 ))}
               </select>
@@ -800,43 +901,32 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                 <div style={{ fontSize: 20, fontWeight: 800, color: "#FD7238" }}>{logPreview.overtimeHours}</div>
               </div>
             </div>
-            <button className="btn" type="submit" style={{ width: "100%", justifyContent: "center" }}>+ เพิ่มบันทึกเวลา</button>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn" type="submit" style={{ flex: 1, justifyContent: "center" }}>
+                {editingLogId ? "บันทึกการแก้ไข" : "เพิ่มบันทึกเวลา"}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={cancelEditLog}>ยกเลิก</button>
+            </div>
           </form>
         </div>
+        </div>
+        ) : (
+          <div className="card form-card" style={{ background: "linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%)", border: "1px solid #e4efe8" }}>
+            <h3>บันทึกเวลา</h3>
+            <p className="sub-text">เพิ่มหรือแก้ไขรายการผ่านหน้าต่างป๊อปอัป</p>
+            <button className="btn" type="button" onClick={openNewLog}>+ เพิ่มบันทึกเวลา</button>
+          </div>
+        )}
 
         <div>
           <div className="card" style={{ marginBottom: 18, background: "#fff" }}>
             <div className="section-header">
               <div>
-                <h3>เพิ่มงาน</h3>
-                <p className="sub-text" style={{ marginTop: 4 }}>สร้างงานก่อน แล้วนำไปเลือกตอนบันทึกเวลา · ระบุวัสดุที่ใช้เพื่อคำนวณค่าวัสดุ</p>
+                <h3>จัดการงาน</h3>
+                <p className="sub-text" style={{ marginTop: 4 }}>เพิ่มหรือแก้ไขข้อมูลงานและวัสดุผ่านหน้าต่างป๊อปอัป</p>
               </div>
             </div>
-            <form onSubmit={addJob} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "end" }}>
-                <div className="field-group" style={{ marginBottom: 0 }}>
-                  <label>ชื่องาน</label>
-                  <input value={jobForm.name} onChange={(e) => setJobForm({ ...jobForm, name: e.target.value })} placeholder="เช่น ผลิต Tray รุ่น A" />
-                </div>
-                <div className="field-group" style={{ marginBottom: 0 }}>
-                  <label>เลขออเดอร์</label>
-                  <input value={jobForm.orderNumber} onChange={(e) => setJobForm({ ...jobForm, orderNumber: e.target.value })} placeholder="ORD-001" />
-                </div>
-                <div className="field-group" style={{ marginBottom: 0 }}>
-                  <label>กลุ่มงาน</label>
-                  <select value={jobForm.ownerRole} onChange={(e) => setJobForm({ ...jobForm, ownerRole: e.target.value })}>
-                    {customerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </div>
-                <div className="field-group" style={{ marginBottom: 0 }}>
-                  <label>เป้าหมาย</label>
-                  <input type="number" min={1} value={jobForm.targetHours} onChange={(e) => setJobForm({ ...jobForm, targetHours: Number(e.target.value) })} />
-                </div>
-                <button className="btn" type="submit" style={{ minHeight: 45 }}>เพิ่มงาน</button>
-              </div>
-
-              <MaterialLinesEditor lines={materialLines} onChange={setMaterialLines} catalog={materialCatalog} />
-            </form>
+            <button className="btn" type="button" onClick={openNewJob}>+ เพิ่มงาน</button>
           </div>
 
           <div className="card" style={{ marginBottom: 18, background: "#fff" }}>
@@ -884,7 +974,6 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                     const jobMaterials = job.materials ?? [];
                     const jobCost = calcJobMaterialCost(job);
                     const expanded = expandedJobId === job.id;
-                    const editing = editingMaterialsJobId === job.id;
                     return (
                       <React.Fragment key={job.id}>
                         <tr>
@@ -925,23 +1014,16 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                           </td>
                           <td>
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              <button className="btn btn-small" type="button" onClick={() => startEditJobMaterials(job)}>🧱 วัสดุ</button>
+                              <button className="btn btn-small" type="button" onClick={() => startEditJob(job)}>แก้ไข</button>
                               {job.status === "active" && <button className="btn btn-small" type="button" onClick={() => closeJob(job.id)}>ปิดงาน</button>}
+                              <button className="btn btn-small btn-danger" type="button" onClick={() => deleteJob(job.id)}>ลบ</button>
                             </div>
                           </td>
                         </tr>
                         {expanded && (
                           <tr>
                             <td colSpan={6} style={{ background: "#f8fbf9" }}>
-                              {editing ? (
-                                <div>
-                                  <MaterialLinesEditor lines={editMaterialLines} onChange={setEditMaterialLines} catalog={materialCatalog} />
-                                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
-                                    <button className="btn btn-small" type="button" onClick={() => saveJobMaterials(job.id, editMaterialLines)}>บันทึกวัสดุ</button>
-                                    <button className="btn btn-small btn-secondary" type="button" onClick={() => { setEditingMaterialsJobId(null); setEditMaterialLines([]); }}>ยกเลิก</button>
-                                  </div>
-                                </div>
-                              ) : jobMaterials.length === 0 ? (
+                              {jobMaterials.length === 0 ? (
                                 <div className="sub-text" style={{ padding: "8px 4px" }}>ยังไม่ได้บันทึกวัสดุของงานนี้</div>
                               ) : (
                                 <table style={{ margin: 0, background: "#fff" }}>
@@ -966,9 +1048,7 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                                 </table>
                               )}
                               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
-                                {!editing && (
-                                  <button className="btn btn-small" type="button" onClick={() => startEditJobMaterials(job)}>✏️ แก้ไขวัสดุ</button>
-                                )}
+                                <button className="btn btn-small" type="button" onClick={() => startEditJob(job)}>แก้ไขงาน / วัสดุ</button>
                                 <button className="btn btn-small btn-secondary" type="button" onClick={() => setExpandedJobId(null)}>ปิด</button>
                               </div>
                             </td>
@@ -1028,13 +1108,82 @@ function ManHourPanel({ customers }: { customers: Customer[] }) {
                       {log.overtimeHours > 0 ? `${log.overtimeHours} ชม.` : "ไม่มี OT"}
                     </span>
                   </td>
-                  <td><button className="btn btn-small btn-danger" type="button" onClick={() => deleteLog(log.id)}>ลบ</button></td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-small" type="button" onClick={() => startEditLog(log)}>แก้ไข</button>
+                      <button className="btn btn-small btn-danger" type="button" onClick={() => deleteLog(log.id)}>ลบ</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {jobModalOpen && (
+        <div
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setJobModalOpen(false);
+              setEditingJobId(null);
+              setEditMaterialLines([]);
+            }
+          }}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15, 23, 42, .55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <div className="card" role="dialog" aria-modal="true" aria-labelledby="manhour-job-modal-title" style={{ width: "min(900px, 100%)", maxHeight: "90vh", overflowY: "auto", background: "#fff", boxShadow: "0 24px 80px rgba(15,23,42,.25)" }}>
+            <div className="section-header">
+              <div>
+                <h3 id="manhour-job-modal-title">{editingJobId ? "แก้ไขงานและวัสดุ" : "เพิ่มงาน"}</h3>
+                <p className="sub-text">{editingJobId ? "แก้ไขรายละเอียดงาน สถานะ และข้อมูลวัสดุในหน้าต่างเดียว" : "กรอกรายละเอียดงานและวัสดุที่ใช้"}</p>
+              </div>
+              <button
+                className="btn btn-small btn-secondary"
+                type="button"
+                onClick={() => { setJobModalOpen(false); setEditingJobId(null); setEditMaterialLines([]); }}
+                aria-label="ปิดหน้าต่าง"
+              >
+                ปิด
+              </button>
+            </div>
+            <form onSubmit={saveEditedJob} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <div className="field-group">
+                  <label>ชื่องาน</label>
+                  <input required value={editJobForm.name} onChange={(event) => setEditJobForm({ ...editJobForm, name: event.target.value })} />
+                </div>
+                <div className="field-group">
+                  <label>เลขออเดอร์</label>
+                  <input value={editJobForm.orderNumber} onChange={(event) => setEditJobForm({ ...editJobForm, orderNumber: event.target.value })} />
+                </div>
+                <div className="field-group">
+                  <label>กลุ่มงาน</label>
+                  <select value={editJobForm.ownerRole} onChange={(event) => setEditJobForm({ ...editJobForm, ownerRole: event.target.value })}>
+                    {customerRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <div className="field-group">
+                  <label>เป้าหมาย (ชั่วโมง)</label>
+                  <input type="number" min={1} value={editJobForm.targetHours} onChange={(event) => setEditJobForm({ ...editJobForm, targetHours: Number(event.target.value) })} />
+                </div>
+                <div className="field-group">
+                  <label>สถานะงาน</label>
+                  <select value={editJobForm.status} onChange={(event) => setEditJobForm({ ...editJobForm, status: event.target.value as "active" | "done" })}>
+                    <option value="active">กำลังทำ</option>
+                    <option value="done">เสร็จแล้ว</option>
+                  </select>
+                </div>
+              </div>
+              <MaterialLinesEditor lines={editMaterialLines} onChange={setEditMaterialLines} catalog={materialCatalog} />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button className="btn btn-secondary" type="button" onClick={() => { setJobModalOpen(false); setEditingJobId(null); setEditMaterialLines([]); }}>ยกเลิก</button>
+                <button className="btn" type="submit">{editingJobId ? "บันทึกการแก้ไข" : "เพิ่มงาน"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
