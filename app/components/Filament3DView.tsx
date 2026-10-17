@@ -28,6 +28,36 @@ type FilamentData = {
 };
 
 type Panel = "spool" | "usage" | null;
+type ReportType = "data" | "blank";
+
+type BlankSpoolRow = {
+  id: number;
+  name: string;
+  color: string;
+  supplier: string;
+  initialWeight: string;
+  monthlyUsage: string;
+  totalUsage: string;
+  remainingWeight: string;
+};
+
+type BlankUsageRow = {
+  id: number;
+  date: string;
+  spool: string;
+  color: string;
+  printJob: string;
+  amount: string;
+  usedBy: string;
+};
+
+function createBlankSpoolRow(id: number): BlankSpoolRow {
+  return { id, name: "", color: "", supplier: "", initialWeight: "", monthlyUsage: "", totalUsage: "", remainingWeight: "" };
+}
+
+function createBlankUsageRow(id: number): BlankUsageRow {
+  return { id, date: "", spool: "", color: "", printJob: "", amount: "", usedBy: "" };
+}
 
 function localDateValue() {
   const date = new Date();
@@ -80,6 +110,12 @@ export function Filament3DView() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [activePanel, setActivePanel] = useState<Panel>(null);
+  const [reportType, setReportType] = useState<ReportType>("data");
+  const [blankReportDate, setBlankReportDate] = useState(localDateValue);
+  const [blankReportAuthor, setBlankReportAuthor] = useState("");
+  const [blankSummary, setBlankSummary] = useState({ monthly: "", remaining: "", total: "" });
+  const [blankSpoolRows, setBlankSpoolRows] = useState<BlankSpoolRow[]>(() => Array.from({ length: 5 }, (_, index) => createBlankSpoolRow(index + 1)));
+  const [blankUsageRows, setBlankUsageRows] = useState<BlankUsageRow[]>(() => Array.from({ length: 8 }, (_, index) => createBlankUsageRow(index + 1)));
   const [selectedMonth, setSelectedMonth] = useState(localMonthValue);
   const [spoolForm, setSpoolForm] = useState({
     name: "", brand: "", color: "", supplier: "", initialWeightGrams: "1000", purchaseDate: localDateValue(),
@@ -128,7 +164,18 @@ export function Filament3DView() {
       year: "numeric",
     });
     const generatedAt = new Date().toLocaleString("th-TH");
-    const spoolRows = spools.map((spool) => {
+    const isBlankReport = reportType === "blank";
+    const spoolRows = isBlankReport
+      ? blankSpoolRows.map((row) => `<tr>
+        <td>${escapeHtml(row.name) || "&nbsp;"}</td>
+        <td>${escapeHtml(row.color) || "&nbsp;"}</td>
+        <td>${escapeHtml(row.supplier) || "&nbsp;"}</td>
+        <td class="number">${escapeHtml(row.initialWeight) ? `${escapeHtml(row.initialWeight)} กรัม` : "&nbsp;"}</td>
+        <td class="number">${escapeHtml(row.monthlyUsage) ? `${escapeHtml(row.monthlyUsage)} กรัม` : "&nbsp;"}</td>
+        <td class="number">${escapeHtml(row.totalUsage) ? `${escapeHtml(row.totalUsage)} กรัม` : "&nbsp;"}</td>
+        <td class="number">${escapeHtml(row.remainingWeight) ? `${escapeHtml(row.remainingWeight)} กรัม` : "&nbsp;"}</td>
+      </tr>`).join("")
+      : spools.map((spool) => {
       const monthlyUsage = spool.usages
         .filter((usage) => monthKey(new Date(usage.usedAt)) === selectedMonth)
         .reduce((total, usage) => total + usage.amountGrams, 0);
@@ -143,7 +190,16 @@ export function Filament3DView() {
         <td class="number">${formatGrams(spool.remainingWeightGrams)}</td>
       </tr>`;
     }).join("");
-    const usageRows = monthUsages.map((usage) => `<tr>
+    const usageRows = isBlankReport
+      ? blankUsageRows.map((row) => `<tr>
+        <td>${row.date ? escapeHtml(formatDate(row.date)) : "&nbsp;"}</td>
+        <td>${escapeHtml(row.spool) || "&nbsp;"}</td>
+        <td>${escapeHtml(row.color) || "&nbsp;"}</td>
+        <td>${escapeHtml(row.printJob) || "&nbsp;"}</td>
+        <td class="number">${escapeHtml(row.amount) ? `${escapeHtml(row.amount)} กรัม` : "&nbsp;"}</td>
+        <td>${escapeHtml(row.usedBy) || "&nbsp;"}</td>
+      </tr>`).join("")
+      : monthUsages.map((usage) => `<tr>
       <td>${formatDate(usage.usedAt)}</td>
       <td>${escapeHtml(usage.spool.name)}${usage.spool.brand ? ` · ${escapeHtml(usage.spool.brand)}` : ""}</td>
       <td>${escapeHtml(usage.spool.color)}</td>
@@ -152,7 +208,16 @@ export function Filament3DView() {
       <td>${escapeHtml(usage.usedBy)}</td>
     </tr>`).join("");
 
-    printWindow.document.title = `รายงาน Filament 3D ${reportMonth}`;
+    const reportTitle = isBlankReport ? "แบบฟอร์มรายงานการใช้ Filament 3D" : "รายงานการใช้ Filament 3D";
+    const reportSummary = isBlankReport
+      ? `<div class="metric"><span>ใช้ในเดือนนี้</span><strong>${escapeHtml(blankSummary.monthly) ? `${escapeHtml(blankSummary.monthly)} กรัม` : "&nbsp;"}</strong></div>
+         <div class="metric"><span>คงเหลือทุกม้วน</span><strong>${escapeHtml(blankSummary.remaining) ? `${escapeHtml(blankSummary.remaining)} กรัม` : "&nbsp;"}</strong></div>
+         <div class="metric"><span>ใช้สะสมทั้งหมด</span><strong>${escapeHtml(blankSummary.total) ? `${escapeHtml(blankSummary.total)} กรัม` : "&nbsp;"}</strong></div>`
+      : `<div class="metric"><span>ใช้ในเดือนนี้</span><strong>${formatGrams(monthlyGrams)}</strong></div>
+         <div class="metric"><span>คงเหลือทุกม้วน</span><strong>${formatGrams(remainingGrams)}</strong></div>
+         <div class="metric"><span>ใช้สะสมทั้งหมด</span><strong>${formatGrams(allTimeGrams)}</strong></div>`;
+
+    printWindow.document.title = `${reportTitle} ${reportMonth}`;
     printWindow.document.write(`<!doctype html>
       <html lang="th"><head><meta charset="utf-8"><title>${escapeHtml(printWindow.document.title)}</title>
       <style>
@@ -182,12 +247,10 @@ export function Filament3DView() {
         @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
       </style></head><body>
         <div class="company">T SIAMPACK CO., LTD.</div>
-        <h1>รายงานการใช้ Filament 3D</h1>
-        <div class="meta"><span>ประจำเดือน ${escapeHtml(reportMonth)}</span><span>ออกรายงาน ${escapeHtml(generatedAt)}</span></div>
+        <h1>${escapeHtml(reportTitle)}</h1>
+        <div class="meta"><span>ประจำเดือน ${escapeHtml(reportMonth)}</span><span>${isBlankReport ? `วันที่จัดทำ ${blankReportDate ? escapeHtml(formatDate(blankReportDate)) : "____________________"}` : `ออกรายงาน ${escapeHtml(generatedAt)}`}</span></div>
         <div class="summary">
-          <div class="metric"><span>ใช้ในเดือนนี้</span><strong>${formatGrams(monthlyGrams)}</strong></div>
-          <div class="metric"><span>คงเหลือทุกม้วน</span><strong>${formatGrams(remainingGrams)}</strong></div>
-          <div class="metric"><span>ใช้สะสมทั้งหมด</span><strong>${formatGrams(allTimeGrams)}</strong></div>
+          ${reportSummary}
         </div>
         <h2>สรุปยอดรายม้วน</h2>
         <table><thead><tr><th style="width:15%">ชนิด / ยี่ห้อ</th><th style="width:11%">สี</th><th style="width:14%">ซื้อจาก</th><th style="width:12%">น้ำหนักตั้งต้น</th><th style="width:12%">ใช้เดือนนี้</th><th style="width:12%">ใช้สะสม</th><th style="width:12%">คงเหลือ</th></tr></thead>
@@ -196,7 +259,7 @@ export function Filament3DView() {
         <table><thead><tr><th style="width:13%">วันที่</th><th style="width:18%">ชนิด / ยี่ห้อ</th><th style="width:12%">สี</th><th style="width:27%">งานที่พิมพ์</th><th style="width:14%">น้ำหนักที่ใช้</th><th style="width:16%">ผู้ใช้ / ผู้ลงชื่อ</th></tr></thead>
           <tbody>${usageRows || '<tr><td colspan="6" class="empty">ไม่มีรายการใช้ในเดือนนี้</td></tr>'}</tbody></table>
         <div class="signatures"><div class="signature"><div class="signature-line"></div>ผู้จัดทำรายงาน</div><div class="signature"><div class="signature-line"></div>ผู้ตรวจสอบ</div></div>
-        <div class="footer">รายงานนี้สร้างจากระบบ ERP · ${escapeHtml(currentUser?.name || "")}</div>
+        <div class="footer">${isBlankReport ? `ผู้จัดทำ ${escapeHtml(blankReportAuthor) || "______________________________"}` : `รายงานนี้สร้างจากระบบ ERP · ${escapeHtml(currentUser?.name || "")}`}</div>
       </body></html>`);
     printWindow.document.close();
     printWindow.onload = () => printWindow.print();
@@ -316,6 +379,7 @@ export function Filament3DView() {
           .actions { width: 100%; justify-content: flex-start; }
           .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .blank-editor-meta, .blank-editor-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .field.wide { grid-column: span 2; }
           .section-head { align-items: flex-start; flex-direction: column; }
         }
@@ -328,12 +392,39 @@ export function Filament3DView() {
           .metric strong { font-size: 20px; }
           .actions .action { flex: 1 1 calc(50% - 8px); white-space: normal; }
           .form-grid { grid-template-columns: 1fr; }
+          .blank-editor-meta, .blank-editor-summary { grid-template-columns: 1fr; }
           .field.wide { grid-column: span 1; }
           .month-control { width: 100%; justify-content: space-between; }
         }
-        :global(body.dark) .filament-page { color: #e4ede7; --line: #33473d; --muted: #a5b7ad; }
-        :global(body.dark) .page-head { background: #17372e; }
-        :global(body.dark) .metric, :global(body.dark) .form-panel, :global(body.dark) .table-wrap { background: #14231e; border-color: #33473d; }
+          .report-selector { margin: 0 0 20px; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+          .report-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); }
+          .report-tab { min-height: 40px; padding: 9px 14px; border: 1px solid transparent; border-bottom: 3px solid transparent; background: transparent; color: #52645a; font-weight: 700; }
+          .report-tab[aria-selected="true"] { border-bottom-color: #2c8a68; color: #214b3f; }
+          .report-description { margin: 11px 0 0; color: var(--muted); font-size: 13px; }
+          .blank-editor { margin: 0 0 22px; padding: 18px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+          .blank-editor h3 { margin: 0; color: #263a32; font-size: 16px; }
+          .blank-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+          .blank-editor-meta, .blank-editor-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+          .blank-editor .field label { display: block; margin-bottom: 6px; color: #52645a; font-size: 12px; font-weight: 700; }
+          .blank-editor .field input { min-height: 38px; }
+          .blank-table { overflow-x: auto; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 6px; }
+          .blank-table table { min-width: 900px; }
+          .blank-table input { min-width: 90px; padding: 7px; }
+          .blank-table .number-input { min-width: 80px; }
+          .row-actions { width: 1%; white-space: nowrap; }
+          .row-delete { border: 1px solid #e7c7c0; border-radius: 4px; padding: 6px 9px; background: #fff5f2; color: #a43d28; font-weight: 700; }
+          .add-row { margin-top: 10px; border: 1px solid #cbd6ce; border-radius: 5px; padding: 8px 12px; background: #fff; color: #214b3f; font-weight: 700; }
+          :global(body.dark) .filament-page { color: #e4ede7; --line: #33473d; --muted: #a5b7ad; }
+          :global(body.dark) .page-head { background: #17372e; }
+          :global(body.dark) .metric, :global(body.dark) .form-panel, :global(body.dark) .table-wrap { background: #14231e; border-color: #33473d; }
+          :global(body.dark) .report-selector { background: #14231e; border-color: #33473d; }
+          :global(body.dark) .report-tab { color: #a5b7ad; }
+          :global(body.dark) .report-tab[aria-selected="true"] { color: #d6eee1; border-bottom-color: #4ca882; }
+          :global(body.dark) .blank-editor, :global(body.dark) .blank-table { background: #14231e; border-color: #33473d; }
+          :global(body.dark) .blank-editor h3 { color: #d6eee1; }
+          :global(body.dark) .blank-editor .field label { color: #a5b7ad; }
+          :global(body.dark) .row-delete { background: #422a22; border-color: #684133; color: #ffc4aa; }
+          :global(body.dark) .add-row { background: #1e3028; border-color: #485e52; color: #d6eee1; }
         :global(body.dark) .metric { border-top-color: #4ca882; }
         :global(body.dark) .metric:nth-child(2) { border-top-color: #d08a43; }
         :global(body.dark) .metric:nth-child(3) { border-top-color: #7897b3; }
@@ -361,7 +452,7 @@ export function Filament3DView() {
           </div>
         </div>
         <div className="actions">
-          <button type="button" className="action secondary" onClick={handlePrintReport} disabled={loading}><i className="bx bx-printer" aria-hidden="true" /> พิมพ์ / บันทึก PDF</button>
+          <button type="button" className="action secondary" onClick={handlePrintReport} disabled={loading && reportType === "data"}><i className="bx bx-printer" aria-hidden="true" /> {reportType === "data" ? "พิมพ์รายงาน / บันทึก PDF" : "พิมพ์รายงานที่กรอก"}</button>
           <button type="button" className="action secondary" onClick={() => setActivePanel(activePanel === "spool" ? null : "spool")}>+ เพิ่มม้วน</button>
           <button type="button" className="action" onClick={() => setActivePanel(activePanel === "usage" ? null : "usage")} disabled={spools.length === 0}>บันทึกการใช้</button>
         </div>
@@ -369,6 +460,119 @@ export function Filament3DView() {
 
       {notice && <p className="notice" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
+
+      <section className="report-selector" aria-label="เลือกรูปแบบรายงาน">
+        <div className="report-tabs" role="tablist" aria-label="รูปแบบรายงาน Filament 3D">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportType === "data"}
+            className="report-tab"
+            onClick={() => setReportType("data")}
+          >
+            รายงานจากข้อมูล
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportType === "blank"}
+            className="report-tab"
+            onClick={() => setReportType("blank")}
+          >
+            กรอกรายงานเอง
+          </button>
+        </div>
+        <p className="report-description" role="tabpanel">
+          {reportType === "data"
+            ? `พิมพ์สรุปข้อมูลม้วนและประวัติการใช้จริง ประจำเดือน ${formatMonth(selectedMonth)}`
+            : `กรอกข้อมูลรายงานประจำเดือน ${formatMonth(selectedMonth)} ในตารางด้านล่าง แล้วกดพิมพ์รายงานที่กรอก`}
+        </p>
+      </section>
+
+      {reportType === "blank" && (
+        <section className="blank-editor" aria-label="กรอกข้อมูลรายงาน Filament 3D">
+          <div className="blank-editor-head">
+            <div>
+              <h3>กรอกข้อมูลรายงาน</h3>
+              <p className="report-description">ใส่ข้อมูลในช่องตารางโดยตรง คล้ายหน้าบันทึกข้อมูลเครื่องจักร</p>
+            </div>
+          </div>
+
+          <div className="blank-editor-meta">
+            <div className="field">
+              <label htmlFor="blank-report-date">วันที่จัดทำ</label>
+              <input id="blank-report-date" type="date" value={blankReportDate} onChange={(event) => setBlankReportDate(event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="blank-report-author">ผู้จัดทำรายงาน</label>
+              <input id="blank-report-author" value={blankReportAuthor} onChange={(event) => setBlankReportAuthor(event.target.value)} placeholder="ชื่อผู้จัดทำ" />
+            </div>
+          </div>
+
+          <h3 style={{ marginBottom: 10 }}>สรุปยอดรวม</h3>
+          <div className="blank-editor-summary">
+            <div className="field">
+              <label htmlFor="blank-monthly-total">ใช้ในเดือนนี้ (กรัม)</label>
+              <input id="blank-monthly-total" type="number" min="0" step="0.1" value={blankSummary.monthly} onChange={(event) => setBlankSummary({ ...blankSummary, monthly: event.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="blank-remaining-total">คงเหลือทุกม้วน (กรัม)</label>
+              <input id="blank-remaining-total" type="number" min="0" step="0.1" value={blankSummary.remaining} onChange={(event) => setBlankSummary({ ...blankSummary, remaining: event.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="blank-all-time-total">ใช้สะสมทั้งหมด (กรัม)</label>
+              <input id="blank-all-time-total" type="number" min="0" step="0.1" value={blankSummary.total} onChange={(event) => setBlankSummary({ ...blankSummary, total: event.target.value })} />
+            </div>
+          </div>
+
+          <div className="blank-editor-head">
+            <h3>สรุปยอดรายม้วน</h3>
+            <button type="button" className="add-row" onClick={() => setBlankSpoolRows((rows) => [...rows, createBlankSpoolRow(Math.max(0, ...rows.map((row) => row.id)) + 1)])}>+ เพิ่มแถวม้วน</button>
+          </div>
+          <div className="blank-table">
+            <table>
+              <thead><tr><th>ชนิด / ยี่ห้อ</th><th>สี</th><th>ซื้อจาก</th><th>น้ำหนักตั้งต้น (กรัม)</th><th>ใช้เดือนนี้ (กรัม)</th><th>ใช้สะสม (กรัม)</th><th>คงเหลือ (กรัม)</th><th>จัดการ</th></tr></thead>
+              <tbody>
+                {blankSpoolRows.map((row) => (
+                  <tr key={row.id}>
+                    <td><input aria-label="ชนิดหรือยี่ห้อ Filament" value={row.name} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, name: event.target.value } : item))} /></td>
+                    <td><input aria-label="สี Filament" value={row.color} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, color: event.target.value } : item))} /></td>
+                    <td><input aria-label="ร้านที่ซื้อ Filament" value={row.supplier} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, supplier: event.target.value } : item))} /></td>
+                    <td><input className="number-input" aria-label="น้ำหนักตั้งต้น" type="number" min="0" step="0.1" value={row.initialWeight} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, initialWeight: event.target.value } : item))} /></td>
+                    <td><input className="number-input" aria-label="ปริมาณใช้เดือนนี้" type="number" min="0" step="0.1" value={row.monthlyUsage} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, monthlyUsage: event.target.value } : item))} /></td>
+                    <td><input className="number-input" aria-label="ปริมาณใช้สะสม" type="number" min="0" step="0.1" value={row.totalUsage} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, totalUsage: event.target.value } : item))} /></td>
+                    <td><input className="number-input" aria-label="น้ำหนักคงเหลือ" type="number" min="0" step="0.1" value={row.remainingWeight} onChange={(event) => setBlankSpoolRows(blankSpoolRows.map((item) => item.id === row.id ? { ...item, remainingWeight: event.target.value } : item))} /></td>
+                    <td className="row-actions"><button type="button" className="row-delete" aria-label="ลบแถวม้วน" onClick={() => setBlankSpoolRows(blankSpoolRows.filter((item) => item.id !== row.id))}>ลบ</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="blank-editor-head">
+            <h3>รายละเอียดการใช้ประจำเดือน</h3>
+            <button type="button" className="add-row" onClick={() => setBlankUsageRows((rows) => [...rows, createBlankUsageRow(Math.max(0, ...rows.map((row) => row.id)) + 1)])}>+ เพิ่มรายการใช้</button>
+          </div>
+          <div className="blank-table">
+            <table>
+              <thead><tr><th>วันที่</th><th>ม้วน / ยี่ห้อ</th><th>สี</th><th>งานที่พิมพ์</th><th>น้ำหนักที่ใช้ (กรัม)</th><th>ผู้ใช้ / ผู้ลงชื่อ</th><th>จัดการ</th></tr></thead>
+              <tbody>
+                {blankUsageRows.map((row) => (
+                  <tr key={row.id}>
+                    <td><input aria-label="วันที่ใช้" type="date" value={row.date} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, date: event.target.value } : item))} /></td>
+                    <td><input aria-label="ม้วน Filament ที่ใช้" value={row.spool} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, spool: event.target.value } : item))} /></td>
+                    <td><input aria-label="สีม้วน Filament" value={row.color} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, color: event.target.value } : item))} /></td>
+                    <td><input aria-label="งานที่พิมพ์" value={row.printJob} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, printJob: event.target.value } : item))} /></td>
+                    <td><input className="number-input" aria-label="น้ำหนัก Filament ที่ใช้" type="number" min="0" step="0.1" value={row.amount} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, amount: event.target.value } : item))} /></td>
+                    <td><input aria-label="ผู้ใช้ Filament" value={row.usedBy} onChange={(event) => setBlankUsageRows(blankUsageRows.map((item) => item.id === row.id ? { ...item, usedBy: event.target.value } : item))} /></td>
+                    <td className="row-actions"><button type="button" className="row-delete" aria-label="ลบรายการใช้" onClick={() => setBlankUsageRows(blankUsageRows.filter((item) => item.id !== row.id))}>ลบ</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {activePanel === "spool" && (
         <form className="form-panel" onSubmit={submitSpool}>
